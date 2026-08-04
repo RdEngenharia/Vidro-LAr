@@ -57,10 +57,18 @@ export const QuoteList: React.FC<QuoteListProps> = ({
 
   // Filter logic
   const filteredQuotes = quotes.filter((q) => {
-    const matchesSearch =
-      q.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      q.codeNumber.toString().includes(searchTerm) ||
-      q.customerPhone.includes(searchTerm);
+    const searchLower = searchTerm.toLowerCase().trim();
+
+    let matchesSearch = true;
+    if (searchLower) {
+      matchesSearch =
+        (q.customerName && q.customerName.toLowerCase().includes(searchLower)) ||
+        (q.codeNumber && q.codeNumber.toString().includes(searchLower)) ||
+        (q.customerPhone && q.customerPhone.toLowerCase().includes(searchLower)) ||
+        (q.customerEmail && q.customerEmail.toLowerCase().includes(searchLower)) ||
+        (q.customerAddress && q.customerAddress.toLowerCase().includes(searchLower)) ||
+        (q.items && q.items.some((item) => item.productName && item.productName.toLowerCase().includes(searchLower)));
+    }
 
     if (!matchesSearch) return false;
 
@@ -179,29 +187,55 @@ export const QuoteList: React.FC<QuoteListProps> = ({
           ))}
         </div>
 
-        {/* Mobile Search & New Button */}
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <div className="relative flex-1 sm:w-64 md:hidden">
+        {/* Search & New Button */}
+        <div className="flex items-center gap-2.5 w-full sm:w-auto flex-1 max-w-md">
+          <div className="relative flex-1">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
               value={searchTerm}
               onChange={(e) => onSearchChange(e.target.value)}
-              placeholder="Buscar orçamento..."
-              className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"
+              placeholder="Buscar cliente, pedido #, telefone, e-mail..."
+              className="w-full pl-9 pr-8 py-2 bg-slate-50 hover:bg-slate-100/80 focus:bg-white border border-slate-200 focus:border-slate-400 rounded-xl text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-slate-900/10 transition-all"
             />
+            {searchTerm && (
+              <button
+                onClick={() => onSearchChange('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 p-0.5 rounded-md hover:bg-slate-200 text-xs font-bold transition-colors cursor-pointer"
+                title="Limpar busca"
+              >
+                ✕
+              </button>
+            )}
           </div>
 
           <button
             onClick={onNewQuote}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer shrink-0"
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors cursor-pointer shrink-0"
           >
             <PlusCircle className="w-4 h-4 text-blue-400" />
-            <span>Novo Orçamento</span>
+            <span className="hidden sm:inline">Novo Orçamento</span>
+            <span className="sm:hidden">Novo</span>
           </button>
         </div>
 
       </div>
+
+      {/* Active Search Banner */}
+      {searchTerm && (
+        <div className="flex items-center justify-between bg-blue-50/80 border border-blue-200 px-4 py-2.5 rounded-xl text-xs text-blue-900 font-medium">
+          <div className="flex items-center gap-2">
+            <Search className="w-4 h-4 text-blue-600" />
+            <span>Exibindo <strong>{filteredQuotes.length}</strong> orçamento{filteredQuotes.length !== 1 ? 's' : ''} para a busca: <strong>"{searchTerm}"</strong></span>
+          </div>
+          <button
+            onClick={() => onSearchChange('')}
+            className="text-blue-700 hover:text-blue-900 underline font-bold text-xs cursor-pointer"
+          >
+            Limpar busca
+          </button>
+        </div>
+      )}
 
       {/* Quotes List Table */}
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
