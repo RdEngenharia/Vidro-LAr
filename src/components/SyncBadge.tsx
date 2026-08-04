@@ -24,9 +24,9 @@ export const SyncBadge: React.FC = () => {
           <span>Online</span>
         </span>
       ) : (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 font-medium border border-amber-200" title="Modo Offline Ativo - Dados salvos no IndexedDB local">
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 font-medium border border-amber-200" title="Modo Offline Ativo - Dados salvos no dispositivo local">
           <WifiOff className="w-3.5 h-3.5 text-amber-600" />
-          <span>Modo Offline (IndexedDB)</span>
+          <span>Modo Offline</span>
         </span>
       )}
 
@@ -35,7 +35,7 @@ export const SyncBadge: React.FC = () => {
           onClick={handleManualSync}
           disabled={status.isSyncing || !status.isOnline}
           className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 hover:bg-blue-100 font-medium border border-blue-200 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-          title="Clique para sincronizar dados locais com o Firebase"
+          title="Clique para atualizar e sincronizar dados"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${status.isSyncing ? 'animate-spin text-blue-600' : ''}`} />
           <span>{status.pendingCount} pendente{status.pendingCount > 1 ? 's' : ''}</span>

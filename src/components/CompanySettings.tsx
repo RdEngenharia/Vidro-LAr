@@ -149,8 +149,8 @@ export const CompanySettingsView: React.FC<CompanySettingsProps> = ({
             </div>
 
             <div className="p-3 bg-blue-50/50 border border-blue-100 rounded-xl text-[11px] text-blue-900 leading-relaxed">
-              <strong className="block mb-0.5">Dica para GitHub & Vercel:</strong>
-              Você também pode colocar seu arquivo <code>logo.png</code> diretamente dentro da pasta <code>/public</code> no seu repositório do GitHub para que ele seja carregado automaticamente!
+              <strong className="block mb-0.5">Dica para a Logo:</strong>
+              Envie uma imagem em alta resolução (PNG ou JPG) com fundo transparente para garantir um excelente resultado na impressão e visualização do orçamento em PDF.
             </div>
           </div>
         </div>

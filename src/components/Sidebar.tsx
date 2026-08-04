@@ -4,7 +4,7 @@ import {
   Users,
   Grid,
   Settings,
-  CloudCheck,
+  RefreshCw,
   ShieldCheck,
   Building,
   DollarSign
@@ -53,8 +53,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'deploy' as TabType,
-      label: 'GitHub, Vercel & Firebase',
-      icon: CloudCheck,
+      label: 'Atualizar Sistema',
+      icon: RefreshCw,
     },
   ];
 

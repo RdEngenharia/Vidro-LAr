@@ -1,7 +1,7 @@
 import React from 'react';
 import { useAuth } from '../lib/authContext';
 import { SyncBadge } from './SyncBadge';
-import { Building2, LogOut, PlusCircle, Search, ShieldCheck, Github } from 'lucide-react';
+import { Building2, LogOut, PlusCircle, Search, ShieldCheck, RefreshCw } from 'lucide-react';
 
 interface NavbarProps {
   onNewQuoteClick: () => void;
@@ -68,10 +68,10 @@ export const Navbar: React.FC<NavbarProps> = ({
             <button
               onClick={onDeployGuideClick}
               className="hidden lg:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors border border-slate-200 cursor-pointer"
-              title="Instruções para GitHub, Vercel e Firebase"
+              title="Atualização e Sincronização do Sistema"
             >
-              <Github className="w-3.5 h-3.5 text-slate-700" />
-              <span>Deploy & Sync</span>
+              <RefreshCw className="w-3.5 h-3.5 text-slate-700" />
+              <span>Atualizar</span>
             </button>
 
             <button
