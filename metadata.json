@@ -1,0 +1,6 @@
+{
+  "name": "Sistema Vidraçaria Pro",
+  "description": "Gerador de orçamentos e pedidos de material para vidraçarias com suporte offline, PDF no modelo oficial, controle de 50% de entrada, catálogo de produtos e categorias reconfiguráveis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
