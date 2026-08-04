@@ -22,8 +22,40 @@ class SyncEngine {
   private tenantId: string = 'tenant_default';
 
   constructor() {
-    window.addEventListener('online', () => this.handleNetworkChange(true));
+    window.addEventListener('online', () => this.checkConnectivity());
     window.addEventListener('offline', () => this.handleNetworkChange(false));
+    
+    // Initial check and periodic heartbeat check every 4 seconds
+    this.checkConnectivity();
+    setInterval(() => this.checkConnectivity(), 4000);
+  }
+
+  public async checkConnectivity(): Promise<boolean> {
+    if (!navigator.onLine) {
+      this.handleNetworkChange(false);
+      return false;
+    }
+
+    try {
+      // Use controller with 2.5 second timeout for quick detection
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2500);
+
+      const res = await fetch(`/favicon.ico?_t=${Date.now()}`, {
+        method: 'HEAD',
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      const online = res.ok || res.status < 500;
+      this.handleNetworkChange(online);
+      return online;
+    } catch {
+      // Fetch failed -> No internet connectivity
+      this.handleNetworkChange(false);
+      return false;
+    }
   }
 
   public setTenantId(tenantId: string) {
@@ -55,10 +87,13 @@ class SyncEngine {
   }
 
   private handleNetworkChange(online: boolean) {
+    const stateChanged = this.isOnline !== online;
     this.isOnline = online;
-    this.notify();
-    if (online) {
-      this.syncNow();
+    if (stateChanged) {
+      this.notify();
+      if (online) {
+        this.syncNow();
+      }
     }
   }
 
