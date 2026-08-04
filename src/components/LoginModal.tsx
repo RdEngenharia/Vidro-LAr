@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { useAuth } from '../lib/authContext';
-import { Building2, Lock, Mail, User, ShieldCheck, ArrowRight, WifiOff } from 'lucide-react';
+import { Building2, Lock, Mail, User, ShieldCheck, ArrowRight, WifiOff, Terminal } from 'lucide-react';
 
 interface LoginModalProps {
   isOpen: boolean;
+  onDevConsoleClick?: () => void;
 }
 
-export const LoginModal: React.FC<LoginModalProps> = ({ isOpen }) => {
+export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onDevConsoleClick }) => {
   const { login, register } = useAuth();
   const [isRegistering, setIsRegistering] = useState(false);
 
@@ -50,6 +51,18 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen }) => {
         
         {/* Header */}
         <div className="bg-slate-900 text-white p-6 text-center relative">
+          {onDevConsoleClick && (
+            <button
+              onClick={onDevConsoleClick}
+              type="button"
+              className="absolute top-4 right-4 inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-blue-300 text-[11px] font-bold rounded-lg border border-slate-700 transition-colors cursor-pointer shadow-xs"
+              title="Abrir Painel do Desenvolvedor"
+            >
+              <Terminal className="w-3.5 h-3.5 text-blue-400" />
+              <span>Modo Dev</span>
+            </button>
+          )}
+
           <div className="w-14 h-14 rounded-2xl bg-blue-600 text-white flex items-center justify-center font-bold text-2xl mx-auto shadow-lg mb-3 border border-blue-400">
             <Building2 className="w-8 h-8" />
           </div>
@@ -163,6 +176,19 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen }) => {
             <WifiOff className="w-3.5 h-3.5 text-slate-400 shrink-0" />
             <span>Funciona 100% Offline via IndexedDB e sincroniza no Firebase quando houver internet.</span>
           </div>
+
+          {onDevConsoleClick && (
+            <div className="mt-3 pt-3 border-t border-slate-100 text-center">
+              <button
+                type="button"
+                onClick={onDevConsoleClick}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl border border-slate-300 transition-colors cursor-pointer"
+              >
+                <Terminal className="w-3.5 h-3.5 text-blue-600" />
+                <span>Painel do Desenvolvedor (Ver Erros & Logs)</span>
+              </button>
+            </div>
+          )}
 
         </div>
 

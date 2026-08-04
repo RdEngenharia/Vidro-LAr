@@ -1,11 +1,12 @@
 import React from 'react';
 import { useAuth } from '../lib/authContext';
 import { SyncBadge } from './SyncBadge';
-import { Building2, LogOut, PlusCircle, Search, ShieldCheck, RefreshCw } from 'lucide-react';
+import { Building2, LogOut, PlusCircle, Search, ShieldCheck, RefreshCw, Terminal } from 'lucide-react';
 
 interface NavbarProps {
   onNewQuoteClick: () => void;
   onDeployGuideClick: () => void;
+  onDevConsoleClick: () => void;
   searchTerm: string;
   onSearchChange: (val: string) => void;
 }
@@ -13,6 +14,7 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({
   onNewQuoteClick,
   onDeployGuideClick,
+  onDevConsoleClick,
   searchTerm,
   onSearchChange,
 }) => {
@@ -62,8 +64,17 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           {/* Actions & Sync Badge */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
             <SyncBadge />
+
+            <button
+              onClick={onDevConsoleClick}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-slate-800 hover:text-black bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors border border-slate-300 cursor-pointer shadow-2xs"
+              title="Painel do Desenvolvedor - Registro de Erros e Falhas dos Usuários"
+            >
+              <Terminal className="w-3.5 h-3.5 text-blue-600" />
+              <span className="hidden sm:inline">Modo Dev</span>
+            </button>
 
             <button
               onClick={onDeployGuideClick}

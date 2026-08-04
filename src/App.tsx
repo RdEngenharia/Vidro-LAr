@@ -28,6 +28,8 @@ import { CategoryProductManager } from './components/CategoryProductManager';
 import { CompanySettingsView } from './components/CompanySettings';
 import { LoginModal } from './components/LoginModal';
 import { DeployGuideModal } from './components/DeployGuideModal';
+import { DevConsoleModal } from './components/DevConsoleModal';
+import { setLoggerContext } from './lib/logger';
 
 function MainApp() {
   const { user, settings, updateSettings, loading } = useAuth();
@@ -47,6 +49,14 @@ function MainApp() {
 
   // Modals
   const [isDeployGuideOpen, setIsDeployGuideOpen] = useState(false);
+  const [isDevConsoleOpen, setIsDevConsoleOpen] = useState(false);
+
+  // Update Logger context whenever user/tenant changes
+  useEffect(() => {
+    if (tenantId) {
+      setLoggerContext(tenantId, user?.email);
+    }
+  }, [tenantId, user]);
 
   // Load IndexedDB Data for Tenant
   const loadTenantData = async () => {
@@ -173,12 +183,23 @@ function MainApp() {
     <div className="min-h-screen bg-slate-50 font-sans text-slate-800 flex flex-col antialiased selection:bg-blue-100 selection:text-blue-900">
       
       {/* Login Modal overlay if no user */}
-      <LoginModal isOpen={!user} />
+      <LoginModal
+        isOpen={!user}
+        onDevConsoleClick={() => setIsDevConsoleOpen(true)}
+      />
 
       {/* Deploy Guide Modal */}
       <DeployGuideModal
         isOpen={isDeployGuideOpen}
         onClose={() => setIsDeployGuideOpen(false)}
+      />
+
+      {/* Developer Console Modal */}
+      <DevConsoleModal
+        isOpen={isDevConsoleOpen}
+        onClose={() => setIsDevConsoleOpen(false)}
+        currentTenantId={tenantId}
+        currentUserEmail={user?.email}
       />
 
       {user && (
@@ -187,6 +208,7 @@ function MainApp() {
           <Navbar
             onNewQuoteClick={handleNewQuoteClick}
             onDeployGuideClick={() => setIsDeployGuideOpen(true)}
+            onDevConsoleClick={() => setIsDevConsoleOpen(true)}
             searchTerm={searchTerm}
             onSearchChange={setSearchTerm}
           />
