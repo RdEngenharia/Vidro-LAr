@@ -150,6 +150,16 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({
     }
   };
 
+  // Gera IDs únicos de verdade (usa crypto.randomUUID quando disponível), evitando
+  // qualquer colisão entre itens/formas de pagamento criados no mesmo milissegundo
+  // — colisão de key é uma causa clássica de crash "removeChild" no React.
+  const genId = (prefix: string): string => {
+    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+      return `${prefix}_${crypto.randomUUID()}`;
+    }
+    return `${prefix}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  };
+
   const handleAddItem = () => {
     if (!itemProductName.trim()) return;
     const qty = Math.max(1, itemQuantity);
@@ -159,7 +169,7 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({
     const calculatedTotal = parseFloat((qty * unitP).toFixed(2));
 
     const newItem: QuoteItem = {
-      id: `item_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      id: genId('item'),
       quantity: qty,
       heightM: itemHeightM,
       widthM: itemWidthM,
@@ -254,7 +264,7 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({
   const handleAddPaymentSplit = (method: PaymentMethodType = 'PIX', desc: string = '') => {
     const defaultVal = unallocatedAmount > 0 ? unallocatedAmount : (finalPayableAmount > 0 ? finalPayableAmount : 0);
     const newSplit: PaymentSplit = {
-      id: 'split_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+      id: genId('split'),
       method,
       amount: defaultVal,
       installments: method === 'Cartão de Crédito' ? (maxInstallmentsCard || 12) : 1,
@@ -272,7 +282,7 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({
     if (presetType === 'vista') {
       setPaymentSplits([
         {
-          id: 'split_' + Date.now(),
+          id: genId('split'),
           method: 'PIX',
           amount: cashTotalAmount,
           description: `Pagamento à vista no PIX com ${cashDiscountPercent}% de desconto`,
@@ -283,13 +293,13 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({
     } else if (presetType === '50_50') {
       setPaymentSplits([
         {
-          id: 'split_1_' + Date.now(),
+          id: genId('split'),
           method: 'PIX',
           amount: depositAmount,
           description: `Entrada de ${depositPercent}% no pedido`,
         },
         {
-          id: 'split_2_' + Date.now(),
+          id: genId('split'),
           method: 'Cartão de Crédito',
           amount: remainingAmount,
           installments: maxInstallmentsCard,
@@ -302,7 +312,7 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({
     } else if (presetType === 'cartao') {
       setPaymentSplits([
         {
-          id: 'split_' + Date.now(),
+          id: genId('split'),
           method: 'Cartão de Crédito',
           amount: cardTotalAmount,
           installments: maxInstallmentsCard,
@@ -316,13 +326,13 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({
       const half = parseFloat((totalAmount / 2).toFixed(2));
       setPaymentSplits([
         {
-          id: 'split_1_' + Date.now(),
+          id: genId('split'),
           method: 'Permuta',
           amount: half,
           description: 'Descrever bens ou serviços oferecidos na permuta',
         },
         {
-          id: 'split_2_' + Date.now(),
+          id: genId('split'),
           method: 'PIX',
           amount: parseFloat((totalAmount - half).toFixed(2)),
           description: 'Saldo complementar',

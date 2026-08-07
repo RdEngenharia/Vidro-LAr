@@ -8,12 +8,13 @@ interface LoginModalProps {
 }
 
 export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onDevConsoleClick }) => {
-  const { login, register } = useAuth();
+  const { login, register, authError } = useAuth();
   const [isRegistering, setIsRegistering] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Form states
-  const [email, setEmail] = useState('vidramarcoroaalta@hotmail.com');
-  const [password, setPassword] = useState('123456');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [companyName, setCompanyName] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
@@ -29,18 +30,26 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onDevConsoleClic
         setErrorMessage('Preencha todos os campos obrigatórios');
         return;
       }
+      if (password.length < 6) {
+        setErrorMessage('A senha precisa ter pelo menos 6 caracteres');
+        return;
+      }
+      setIsSubmitting(true);
       const success = await register(name, companyName, email, password);
+      setIsSubmitting(false);
       if (!success) {
-        setErrorMessage('Erro ao criar conta da vidraçaria.');
+        setErrorMessage(authError || 'Erro ao criar conta da vidraçaria.');
       }
     } else {
       if (!email || !password) {
         setErrorMessage('Informe e-mail e senha');
         return;
       }
+      setIsSubmitting(true);
       const success = await login(email, password);
+      setIsSubmitting(false);
       if (!success) {
-        setErrorMessage('Credenciais inválidas');
+        setErrorMessage(authError || 'Credenciais inválidas');
       }
     }
   };
@@ -143,9 +152,10 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onDevConsoleClic
                 <input
                   type="password"
                   required
+                  minLength={6}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
+                  placeholder="Mínimo 6 caracteres"
                   className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-slate-900"
                 />
               </div>
@@ -153,9 +163,14 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onDevConsoleClic
 
             <button
               type="submit"
-              className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer mt-2"
+              disabled={isSubmitting}
+              className="w-full py-3 bg-slate-900 hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-xl font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer mt-2"
             >
-              <span>{isRegistering ? 'Cadastrar Minha Vidraçaria' : 'Entrar no Sistema'}</span>
+              <span>
+                {isSubmitting
+                  ? 'Aguarde...'
+                  : isRegistering ? 'Cadastrar Minha Vidraçaria' : 'Entrar no Sistema'}
+              </span>
               <ArrowRight className="w-4 h-4 text-blue-400" />
             </button>
           </form>
@@ -174,7 +189,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onDevConsoleClic
 
           <div className="mt-4 p-3 bg-slate-50 rounded-xl text-[11px] text-slate-500 text-center flex items-center justify-center gap-1.5">
             <WifiOff className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-            <span>Funciona 100% Offline via IndexedDB e sincroniza no Firebase quando houver internet.</span>
+            <span>Primeiro acesso exige internet. Depois disso, funciona offline via IndexedDB e sincroniza automaticamente quando houver conexão.</span>
           </div>
 
           {onDevConsoleClick && (

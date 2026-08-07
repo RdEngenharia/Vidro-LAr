@@ -1,5 +1,5 @@
 import { getSyncQueue, clearSyncQueueItem } from './db';
-import { db as firebaseDb } from './firebase';
+import { db as firebaseDb, ensureFirebaseAuth } from './firebase';
 import { doc, setDoc, deleteDoc } from 'firebase/firestore';
 
 export interface SyncStatus {
@@ -114,6 +114,10 @@ class SyncEngine {
     this.notify();
 
     try {
+      // Garante sessão anônima no Firebase antes de gravar no Firestore
+      // (necessário para regras de segurança que exigem request.auth != null)
+      await ensureFirebaseAuth();
+
       const queue = await getSyncQueue(this.tenantId);
       this.pendingCount = queue.length;
 

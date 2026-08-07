@@ -84,7 +84,7 @@ export function getDB() {
 }
 
 // Default initial data for a tenant
-export async function initializeTenantData(tenantId: string, companyName: string = 'Vidraçaria Coroa Alta') {
+export async function initializeTenantData(tenantId: string, companyName: string = 'Minha Vidraçaria', email: string = '') {
   const db = await getDB();
   
   // Check if categories already exist
@@ -195,152 +195,16 @@ export async function initializeTenantData(tenantId: string, companyName: string
       tenantId,
       companyName,
       tradeName: companyName,
-      address: 'Rua Tupiguás, Nº 1500 - Aldeia Sta. Maria, Coroa Vermelha - BA',
-      cityState: 'Santa Cruz Cabrália - BA',
-      phone: '(73) 99931-3164',
-      email: 'vidramarcoroaalta@hotmail.com',
+      address: '',
+      cityState: '',
+      phone: '',
+      email,
       tagline: 'PORTAS - JANELAS - ESPELHOS - BOX & VIDROS',
       defaultCashDiscount: 10,
       defaultValidDays: 15,
       termsText: 'Proposta válida por 15 dias, ou até reajuste anunciado pelas tempêras.',
     };
     await db.put('settings', defaultSettings);
-  }
-
-  // Seed sample customer if empty
-  const existingCusts = await db.getAllFromIndex('customers', 'by-tenant', tenantId);
-  if (existingCusts.length === 0) {
-    const sampleCustomer: Customer = {
-      id: `cust_latorre_${tenantId}`,
-      tenantId,
-      name: 'La Torre Pousada & Resort',
-      cpfCnpj: '12.345.678/0001-90',
-      phone: '(73) 98822-1100',
-      email: 'financeiro@latorre.com.br',
-      address: 'Av. Beira Mar, 1500 - Coroa Vermelha',
-      cityState: 'Santa Cruz Cabrália - BA',
-      notes: 'Cliente corporativo vip',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    await db.put('customers', sampleCustomer);
-
-    // Create realistic sample quote matching reference image layout
-    const sampleQuote: Quote = {
-      id: `quote_1001_${tenantId}`,
-      codeNumber: 1001,
-      tenantId,
-      customerId: sampleCustomer.id,
-      customerName: sampleCustomer.name,
-      customerPhone: sampleCustomer.phone,
-      customerAddress: sampleCustomer.address,
-      customerEmail: sampleCustomer.email,
-      date: new Date().toISOString(),
-      validUntilDays: 15,
-      status: 'aprovado_50',
-      items: [
-        {
-          id: 'item_1',
-          quantity: 1,
-          heightM: 1.350,
-          widthM: 1.070,
-          thicknessMm: 4,
-          productName: 'Espelho Comum',
-          color: 'Prata',
-          unitPrice: 722.25,
-          totalPrice: 722.25,
-          pricingType: 'unit'
-        },
-        {
-          id: 'item_2',
-          quantity: 1,
-          heightM: 1.385,
-          widthM: 1.420,
-          thicknessMm: 4,
-          productName: 'Espelho Comum',
-          color: 'Prata',
-          unitPrice: 983.35,
-          totalPrice: 983.35,
-          pricingType: 'unit'
-        },
-        {
-          id: 'item_3',
-          quantity: 2,
-          heightM: 0.980,
-          widthM: 1.360,
-          thicknessMm: 4,
-          productName: 'Espelho Comum',
-          color: 'Prata',
-          unitPrice: 666.40,
-          totalPrice: 1332.80,
-          pricingType: 'unit'
-        },
-        {
-          id: 'item_4',
-          quantity: 41,
-          heightM: 0.980,
-          widthM: 1.070,
-          thicknessMm: 4,
-          productName: 'Espelho Comum',
-          color: 'Prata',
-          unitPrice: 524.30,
-          totalPrice: 21496.30,
-          pricingType: 'unit'
-        },
-        {
-          id: 'item_5',
-          quantity: 5,
-          heightM: 1.700,
-          widthM: 0.600,
-          thicknessMm: 4,
-          productName: 'Espelho Comum',
-          color: 'Prata',
-          unitPrice: 510.00,
-          totalPrice: 2550.00,
-          pricingType: 'unit'
-        },
-        {
-          id: 'item_6',
-          quantity: 1,
-          heightM: 1.400,
-          widthM: 0.700,
-          thicknessMm: 4,
-          productName: 'Espelho Comum',
-          color: 'Prata',
-          unitPrice: 490.00,
-          totalPrice: 490.00,
-          pricingType: 'unit'
-        },
-        {
-          id: 'item_7',
-          quantity: 4,
-          heightM: 1.600,
-          widthM: 0.600,
-          thicknessMm: 4,
-          productName: 'Espelho Comum',
-          color: 'Prata',
-          unitPrice: 480.00,
-          totalPrice: 1920.00,
-          pricingType: 'unit'
-        }
-      ],
-      totalAmount: 29494.70,
-      cashDiscountPercent: 25,
-      cashTotalAmount: 22121.03,
-      maxInstallmentsCard: 12,
-      depositPaid: true,
-      depositAmount: 14747.35,
-      depositDate: new Date().toISOString(),
-      remainingPaid: false,
-      remainingAmount: 14747.35,
-      finishColor: 'Branco',
-      notes: 'Entrada de 50% paga na aprovação. Aguardando término do acabamento do hotel para instalação final dos vidros.',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      synced: false
-    };
-
-    await db.put('quotes', sampleQuote);
   }
 }
 
