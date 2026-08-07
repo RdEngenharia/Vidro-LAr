@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Category, ProductPreset } from '../types';
 import { useAuth } from '../lib/authContext';
+import { genId } from '../lib/id';
 import { Grid, Plus, Edit, Trash2, Package, Layers, Check, Info, DollarSign } from 'lucide-react';
 
 interface CategoryProductManagerProps {
@@ -70,7 +71,7 @@ export const CategoryProductManager: React.FC<CategoryProductManagerProps> = ({
     if (!catName.trim()) return;
 
     const catData: Category = {
-      id: editingCat?.id || `cat_${Date.now()}_${tenantId}`,
+      id: editingCat?.id || genId('cat'),
       tenantId,
       name: catName,
       description: catDesc,
@@ -113,7 +114,7 @@ export const CategoryProductManager: React.FC<CategoryProductManagerProps> = ({
     if (!prodName.trim()) return;
 
     const prodData: ProductPreset = {
-      id: editingProd?.id || `prod_${Date.now()}_${tenantId}`,
+      id: editingProd?.id || genId('prod'),
       tenantId,
       categoryId: prodCatId,
       name: prodName,

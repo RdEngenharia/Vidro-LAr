@@ -105,6 +105,14 @@ export const QuotePDFView: React.FC<QuotePDFViewProps> = ({
 • *Saldo A Prazo (${Math.max(0, 100 - depositPct)}%):* ${formatCurrency(remainingAmt)} ${quote.remainingPaymentNotes ? `(${quote.remainingPaymentNotes})` : ''}`;
     }
 
+    // Assim como no orçamento visual: quando existe Divisão de Pagamento explícita, ela é a
+    // única fonte de verdade — não oferecemos mais "12x no cartão" para quem escolheu PIX.
+    const valuesSectionText = hasPaymentSplits
+      ? `• *Valor Total:* ${formatCurrency(quote.totalAmount)}`
+      : `• ${installmentsText}
+• *À Vista (com desconto):* ${formatCurrency(quote.cashTotalAmount)}
+${depositText}`;
+
     const message = `*${compName.toUpperCase()}*
 *ORÇAMENTO / PEDIDO #${quote.codeNumber}*
 
@@ -114,9 +122,7 @@ Olá, *${quote.customerName}*! Segue a proposta de orçamento da sua obra:
 ${itemsList}
 
 💰 *VALORES & CONDIÇÕES:*
-• ${installmentsText}
-• *À Vista (com desconto):* ${formatCurrency(quote.cashTotalAmount)}
-${depositText}${splitsText}
+${valuesSectionText}${splitsText}
 • *Acabamento:* ${quote.finishColor} ${quote.finishColorOther ? `(${quote.finishColorOther})` : ''}
 
 📅 *Validade da proposta:* ${quote.validUntilDays || 15} dias.
@@ -335,28 +341,40 @@ Ficamos à disposição para agendar sua instalação!`;
 
           {/* Totals & Payment Summary */}
           <div className="border border-black divide-y divide-black text-[10.5px] font-bold" style={{ borderColor: '#000000' }}>
-            
-            {/* Card Total with Installment Breakdown */}
-            <div className="flex justify-between items-center p-1.5" style={{ backgroundColor: '#f8fafc' }}>
-              <span className="font-extrabold uppercase">
-                Total - Até {quote.maxInstallmentsCard || 12}x no Cartão
-                {quote.cardFeePercent ? ` (Taxa Máquina ${quote.cardFeePercent}%)` : ''}
-                {quote.maxInstallmentsCard && quote.maxInstallmentsCard > 1 && (
-                  <span className="ml-1 font-mono font-semibold text-[9.5px]" style={{ color: '#334155' }}>
-                    ({quote.maxInstallmentsCard}x de {formatCurrency((quote.cardTotalAmount || quote.totalAmount) / quote.maxInstallmentsCard)})
-                  </span>
-                )}
-              </span>
-              <span className="font-mono text-xs font-black text-black">
-                {formatCurrency(quote.cardTotalAmount || quote.totalAmount)}
-              </span>
-            </div>
 
-            {/* Cash Total */}
-            <div className="flex justify-between items-center p-1.5">
-              <span className="font-extrabold uppercase">A Vista (com desconto)</span>
-              <span className="font-mono text-xs font-black text-black">{formatCurrency(quote.cashTotalAmount)}</span>
-            </div>
+            {/* Quando existe uma Divisão de Pagamento explícita, ela é a única fonte de verdade —
+                não mostramos mais "Total até Nx no Cartão" nem "À Vista com desconto" genéricos,
+                pois isso oferecia opções (ex: parcelamento no cartão) que o cliente nem escolheu. */}
+            {quote.paymentSplits && quote.paymentSplits.length > 0 ? (
+              <div className="flex justify-between items-center p-1.5" style={{ backgroundColor: '#f8fafc' }}>
+                <span className="font-extrabold uppercase">Valor Total do Orçamento</span>
+                <span className="font-mono text-xs font-black text-black">{formatCurrency(quote.totalAmount)}</span>
+              </div>
+            ) : (
+              <>
+                {/* Card Total with Installment Breakdown */}
+                <div className="flex justify-between items-center p-1.5" style={{ backgroundColor: '#f8fafc' }}>
+                  <span className="font-extrabold uppercase">
+                    Total - Até {quote.maxInstallmentsCard || 12}x no Cartão
+                    {quote.cardFeePercent ? ` (Taxa Máquina ${quote.cardFeePercent}%)` : ''}
+                    {quote.maxInstallmentsCard && quote.maxInstallmentsCard > 1 && (
+                      <span className="ml-1 font-mono font-semibold text-[9.5px]" style={{ color: '#334155' }}>
+                        ({quote.maxInstallmentsCard}x de {formatCurrency((quote.cardTotalAmount || quote.totalAmount) / quote.maxInstallmentsCard)})
+                      </span>
+                    )}
+                  </span>
+                  <span className="font-mono text-xs font-black text-black">
+                    {formatCurrency(quote.cardTotalAmount || quote.totalAmount)}
+                  </span>
+                </div>
+
+                {/* Cash Total */}
+                <div className="flex justify-between items-center p-1.5">
+                  <span className="font-extrabold uppercase">A Vista (com desconto)</span>
+                  <span className="font-mono text-xs font-black text-black">{formatCurrency(quote.cashTotalAmount)}</span>
+                </div>
+              </>
+            )}
 
             {/* Payment Splits & Permuta list if present */}
             {quote.paymentSplits && quote.paymentSplits.length > 0 && (

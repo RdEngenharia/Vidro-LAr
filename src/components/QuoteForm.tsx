@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Quote, QuoteItem, Customer, Category, ProductPreset, CompanySettings, PaymentSplit, PaymentMethodType } from '../types';
 import { useAuth } from '../lib/authContext';
+import { genId } from '../lib/id';
 import { Plus, Trash2, Save, UserPlus, Calculator, Info, Check, AlertCircle, CreditCard, Layers } from 'lucide-react';
 
 interface QuoteFormProps {
@@ -148,16 +149,6 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({
       if (prod.defaultColor) setItemColor(prod.defaultColor);
       if (prod.categoryId) setSelectedCategoryId(prod.categoryId);
     }
-  };
-
-  // Gera IDs únicos de verdade (usa crypto.randomUUID quando disponível), evitando
-  // qualquer colisão entre itens/formas de pagamento criados no mesmo milissegundo
-  // — colisão de key é uma causa clássica de crash "removeChild" no React.
-  const genId = (prefix: string): string => {
-    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-      return `${prefix}_${crypto.randomUUID()}`;
-    }
-    return `${prefix}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   };
 
   const handleAddItem = () => {

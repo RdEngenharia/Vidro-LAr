@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Customer } from '../types';
 import { useAuth } from '../lib/authContext';
+import { genId } from '../lib/id';
 import { Users, UserPlus, Search, Edit, Trash2, Phone, Mail, MapPin, FileText, Check, X } from 'lucide-react';
 
 interface CustomerManagerProps {
@@ -59,7 +60,7 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({
     }
 
     const customerData: Customer = {
-      id: editingCustomer?.id || `cust_${Date.now()}`,
+      id: editingCustomer?.id || genId('cust'),
       tenantId,
       name,
       cpfCnpj,
