@@ -1,22 +1,21 @@
 import React, { useState } from 'react';
 import { useAuth } from '../lib/authContext';
-import { Building2, Lock, Mail, User, ShieldCheck, ArrowRight, WifiOff, Terminal } from 'lucide-react';
+import { Building2, Lock, Mail, ShieldCheck, ArrowRight, WifiOff, Terminal } from 'lucide-react';
 
 interface LoginModalProps {
   isOpen: boolean;
   onDevConsoleClick?: () => void;
 }
 
+// NOTA: o cadastro público (self-service) foi desativado por decisão do administrador.
+// Novas contas de vidraçaria são criadas manualmente no Firebase Console
+// (Authentication → Users → Add user). Esta tela só faz login.
 export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onDevConsoleClick }) => {
-  const { login, register, authError } = useAuth();
-  const [isRegistering, setIsRegistering] = useState(false);
+  const { login, authError } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Form states
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
-  const [companyName, setCompanyName] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
 
   if (!isOpen) return null;
@@ -25,39 +24,22 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onDevConsoleClic
     e.preventDefault();
     setErrorMessage('');
 
-    if (isRegistering) {
-      if (!name || !companyName || !email || !password) {
-        setErrorMessage('Preencha todos os campos obrigatórios');
-        return;
-      }
-      if (password.length < 6) {
-        setErrorMessage('A senha precisa ter pelo menos 6 caracteres');
-        return;
-      }
-      setIsSubmitting(true);
-      const success = await register(name, companyName, email, password);
-      setIsSubmitting(false);
-      if (!success) {
-        setErrorMessage(authError || 'Erro ao criar conta da vidraçaria.');
-      }
-    } else {
-      if (!email || !password) {
-        setErrorMessage('Informe e-mail e senha');
-        return;
-      }
-      setIsSubmitting(true);
-      const success = await login(email, password);
-      setIsSubmitting(false);
-      if (!success) {
-        setErrorMessage(authError || 'Credenciais inválidas');
-      }
+    if (!email || !password) {
+      setErrorMessage('Informe e-mail e senha');
+      return;
+    }
+    setIsSubmitting(true);
+    const success = await login(email, password);
+    setIsSubmitting(false);
+    if (!success) {
+      setErrorMessage(authError || 'Credenciais inválidas');
     }
   };
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4">
       <div className="bg-white rounded-3xl max-w-md w-full overflow-hidden shadow-2xl border border-slate-200">
-        
+
         {/* Header */}
         <div className="bg-slate-900 text-white p-6 text-center relative">
           {onDevConsoleClick && (
@@ -87,7 +69,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onDevConsoleClic
 
         {/* Body */}
         <div className="p-6">
-          
+
           {errorMessage && (
             <div className="mb-4 p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold rounded-xl text-center">
               {errorMessage}
@@ -95,41 +77,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onDevConsoleClic
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            
-            {isRegistering && (
-              <>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Seu Nome</label>
-                  <div className="relative">
-                    <User className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input
-                      type="text"
-                      required
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      placeholder="Ex: Carlos Oliveira"
-                      className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-slate-900"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Nome da Vidraçaria</label>
-                  <div className="relative">
-                    <Building2 className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input
-                      type="text"
-                      required
-                      value={companyName}
-                      onChange={(e) => setCompanyName(e.target.value)}
-                      placeholder="Ex: Vidraçaria Coroa Alta"
-                      className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-slate-900"
-                    />
-                  </div>
-                </div>
-              </>
-            )}
-
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">E-mail de Acesso</label>
               <div className="relative">
@@ -139,7 +86,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onDevConsoleClic
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="vidramarcoroaalta@hotmail.com"
+                  placeholder="seuemail@empresa.com"
                   className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-slate-900"
                 />
               </div>
@@ -166,30 +113,18 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onDevConsoleClic
               disabled={isSubmitting}
               className="w-full py-3 bg-slate-900 hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-xl font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer mt-2"
             >
-              <span>
-                {isSubmitting
-                  ? 'Aguarde...'
-                  : isRegistering ? 'Cadastrar Minha Vidraçaria' : 'Entrar no Sistema'}
-              </span>
+              <span>{isSubmitting ? 'Entrando...' : 'Entrar no Sistema'}</span>
               <ArrowRight className="w-4 h-4 text-blue-400" />
             </button>
           </form>
 
-          {/* Toggle Register / Login */}
-          <div className="mt-4 pt-4 border-t border-slate-100 text-center">
-            <button
-              onClick={() => setIsRegistering(!isRegistering)}
-              className="text-xs font-bold text-blue-600 hover:underline cursor-pointer"
-            >
-              {isRegistering
-                ? 'Já possui uma vidraçaria? Faça login aqui'
-                : 'Quer cadastrar uma nova vidraçaria? Clique aqui'}
-            </button>
-          </div>
-
           <div className="mt-4 p-3 bg-slate-50 rounded-xl text-[11px] text-slate-500 text-center flex items-center justify-center gap-1.5">
             <WifiOff className="w-3.5 h-3.5 text-slate-400 shrink-0" />
             <span>Primeiro acesso exige internet. Depois disso, funciona offline via IndexedDB e sincroniza automaticamente quando houver conexão.</span>
+          </div>
+
+          <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-700 text-center">
+            Não tem acesso ainda? Contate o administrador do sistema para criar sua conta.
           </div>
 
           {onDevConsoleClick && (

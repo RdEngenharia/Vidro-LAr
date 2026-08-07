@@ -11,6 +11,7 @@ import { UserProfile, CompanySettings } from '../types';
 import { initializeTenantData, getCompanySettings, saveCompanySettings } from './db';
 import { syncEngine } from './sync';
 import { auth as firebaseAuth } from './firebase';
+import { logError } from './logger';
 
 interface AuthContextType {
   user: UserProfile | null;
@@ -44,8 +45,19 @@ function translateFirebaseAuthError(code?: string): string {
       return 'Muitas tentativas seguidas. Aguarde alguns minutos e tente novamente.';
     case 'auth/network-request-failed':
       return 'Sem conexão com a internet. É necessário estar online no primeiro acesso deste dispositivo.';
+    case 'auth/unauthorized-domain':
+      return `Este endereço (${typeof window !== 'undefined' ? window.location.hostname : ''}) não está autorizado no Firebase. Peça ao administrador para adicioná-lo em Firebase Console → Authentication → Settings → Authorized domains.`;
+    case 'auth/operation-not-allowed':
+      return 'Login por e-mail/senha não está habilitado no Firebase. Ative em Authentication → Sign-in method → Email/senha.';
+    case 'auth/api-key-not-valid':
+    case 'auth/invalid-api-key':
+      return 'Configuração do Firebase inválida (chave de API incorreta). Verifique as variáveis de ambiente.';
+    case 'auth/configuration-not-found':
+      return 'Provedor de login não configurado no Firebase. Ative Email/senha em Authentication → Sign-in method.';
     default:
-      return 'Não foi possível autenticar. Tente novamente.';
+      return code
+        ? `Não foi possível autenticar (código: ${code}). Veja detalhes no Painel do Desenvolvedor.`
+        : 'Não foi possível autenticar. Tente novamente.';
   }
 }
 
@@ -115,6 +127,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await signInWithEmailAndPassword(firebaseAuth, email.trim().toLowerCase(), pass);
       return true;
     } catch (err: any) {
+      logError('AUTH_LOGIN', err, { email: email.trim().toLowerCase() });
       setAuthError(translateFirebaseAuthError(err?.code));
       return false;
     }
@@ -156,6 +169,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await loadTenant(cred.user, companyName);
       return true;
     } catch (err: any) {
+      logError('AUTH_REGISTER', err, { email: email.trim().toLowerCase(), companyName });
       setAuthError(translateFirebaseAuthError(err?.code));
       return false;
     }
