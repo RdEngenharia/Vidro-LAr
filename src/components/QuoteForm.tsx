@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Quote, QuoteItem, Customer, Category, ProductPreset, CompanySettings } from '../types';
+import { Quote, QuoteItem, Customer, Category, ProductPreset, CompanySettings, PaymentSplit, PaymentMethodType } from '../types';
 import { useAuth } from '../lib/authContext';
-import { Plus, Trash2, Save, UserPlus, Calculator, Info, Check, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, Save, UserPlus, Calculator, Info, Check, AlertCircle, CreditCard, Layers } from 'lucide-react';
 
 interface QuoteFormProps {
   initialQuote?: Quote | null;
@@ -43,6 +43,20 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({
   const [cashDiscountPercent, setCashDiscountPercent] = useState<number>(initialQuote?.cashDiscountPercent || companySettings?.defaultCashDiscount || 10);
   const [maxInstallmentsCard, setMaxInstallmentsCard] = useState<number>(initialQuote?.maxInstallmentsCard || 12);
   const [notes, setNotes] = useState(initialQuote?.notes || '');
+
+  // Credit Card Fee & Custom Editable Card Total State
+  const [cardFeePercent, setCardFeePercent] = useState<number>(initialQuote?.cardFeePercent ?? 0);
+  const [cardTotalAmount, setCardTotalAmount] = useState<number>(
+    initialQuote?.cardTotalAmount ?? initialQuote?.totalAmount ?? 0
+  );
+  const [isManualCardTotal, setIsManualCardTotal] = useState<boolean>(
+    initialQuote?.cardTotalAmount !== undefined && initialQuote?.cardTotalAmount !== initialQuote?.totalAmount
+  );
+
+  // Multiple Payment Splits State (Dinheiro, PIX, Cartão, Permuta, etc.)
+  const [paymentSplits, setPaymentSplits] = useState<PaymentSplit[]>(
+    initialQuote?.paymentSplits || []
+  );
 
   // Payment Breakdown State (Customizable Entrada & Saldo A Prazo)
   const [depositPercent, setDepositPercent] = useState<number>(initialQuote?.depositPercent ?? 50);
@@ -191,6 +205,97 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({
     (totalAmount * (1 - cashDiscountPercent / 100)).toFixed(2)
   );
 
+  // Sync credit card total when totalAmount or cardFeePercent changes (unless manually edited)
+  useEffect(() => {
+    if (!isManualCardTotal) {
+      const calc = parseFloat((totalAmount * (1 + (cardFeePercent || 0) / 100)).toFixed(2));
+      setCardTotalAmount(calc);
+    }
+  }, [totalAmount, cardFeePercent, isManualCardTotal]);
+
+  // Helper to calculate unallocated balance
+  const currentSplitSum = paymentSplits.reduce((acc, s) => acc + (s.amount || 0), 0);
+  const unallocatedAmount = parseFloat(Math.max(0, totalAmount - currentSplitSum).toFixed(2));
+
+  // Payment Split helpers
+  const handleAddPaymentSplit = (method: PaymentMethodType = 'PIX', desc: string = '') => {
+    const defaultVal = unallocatedAmount > 0 ? unallocatedAmount : (totalAmount > 0 ? totalAmount : 0);
+    const newSplit: PaymentSplit = {
+      id: 'split_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+      method,
+      amount: defaultVal,
+      installments: method === 'Cartão de Crédito' ? (maxInstallmentsCard || 12) : 1,
+      description: desc,
+    };
+    setPaymentSplits([...paymentSplits, newSplit]);
+  };
+
+  // Quick Preset Actions for Payment Splits
+  const handleApplyPresetSplit = (presetType: 'vista' | '50_50' | 'cartao' | 'permuta') => {
+    if (presetType === 'vista') {
+      setPaymentSplits([
+        {
+          id: 'split_' + Date.now(),
+          method: 'PIX',
+          amount: cashTotalAmount,
+          description: `Pagamento à vista no PIX com ${cashDiscountPercent}% de desconto`,
+        },
+      ]);
+    } else if (presetType === '50_50') {
+      setPaymentSplits([
+        {
+          id: 'split_1_' + Date.now(),
+          method: 'PIX',
+          amount: depositAmount,
+          description: `Entrada de ${depositPercent}% no pedido`,
+        },
+        {
+          id: 'split_2_' + Date.now(),
+          method: 'Cartão de Crédito',
+          amount: remainingAmount,
+          installments: maxInstallmentsCard,
+          description: `Saldo de ${100 - depositPercent}% na conclusão / instalação`,
+        },
+      ]);
+    } else if (presetType === 'cartao') {
+      setPaymentSplits([
+        {
+          id: 'split_' + Date.now(),
+          method: 'Cartão de Crédito',
+          amount: cardTotalAmount,
+          installments: maxInstallmentsCard,
+          description: `Parcelado em ${maxInstallmentsCard}x no Cartão`,
+        },
+      ]);
+    } else if (presetType === 'permuta') {
+      const half = parseFloat((totalAmount / 2).toFixed(2));
+      setPaymentSplits([
+        {
+          id: 'split_1_' + Date.now(),
+          method: 'Permuta',
+          amount: half,
+          description: 'Descrever bens ou serviços oferecidos na permuta',
+        },
+        {
+          id: 'split_2_' + Date.now(),
+          method: 'PIX',
+          amount: parseFloat((totalAmount - half).toFixed(2)),
+          description: 'Saldo complementar',
+        },
+      ]);
+    }
+  };
+
+  const handleUpdatePaymentSplit = (id: string, updated: Partial<PaymentSplit>) => {
+    setPaymentSplits(
+      paymentSplits.map((s) => (s.id === id ? { ...s, ...updated } : s))
+    );
+  };
+
+  const handleRemovePaymentSplit = (id: string) => {
+    setPaymentSplits(paymentSplits.filter((s) => s.id !== id));
+  };
+
   // Sync deposit and remaining amounts when total or deposit percentage changes
   useEffect(() => {
     if (!isManualDepositAmount) {
@@ -265,6 +370,9 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({
       cashDiscountPercent,
       cashTotalAmount,
       maxInstallmentsCard,
+      cardFeePercent,
+      cardTotalAmount,
+      paymentSplits,
       depositPaid: isDepositPaid,
       depositAmount: depositAmount,
       depositPercent: depositPercent,
@@ -723,66 +831,303 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({
       </div>
 
       {/* Totals & Financial Box */}
-      <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-sm space-y-4">
-        <h3 className="font-bold text-sm text-blue-400 uppercase tracking-wider">
-          Resumo Financeiro & Forma de Pagamento
-        </h3>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          
-          {/* Total Cartão & Parcelamento */}
-          <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
-            <div className="flex justify-between items-center text-xs font-semibold text-slate-400">
-              <span>Total no Cartão</span>
-              <div className="flex items-center gap-1">
-                <span>Max Parcelas:</span>
-                <select
-                  value={maxInstallmentsCard}
-                  onChange={(e) => setMaxInstallmentsCard(Number(e.target.value))}
-                  className="p-1 bg-slate-900 border border-slate-600 rounded text-xs font-bold text-blue-300 focus:outline-hidden cursor-pointer"
-                >
-                  <option value={1}>1x (À Vista)</option>
-                  <option value={2}>Até 2x</option>
-                  <option value={3}>Até 3x</option>
-                  <option value={4}>Até 4x</option>
-                  <option value={5}>Até 5x</option>
-                  <option value={6}>Até 6x</option>
-                  <option value={8}>Até 8x</option>
-                  <option value={10}>Até 10x</option>
-                  <option value={12}>Até 12x</option>
-                  <option value={18}>Até 18x</option>
-                  <option value={24}>Até 24x</option>
-                </select>
-              </div>
-            </div>
-            <p className="text-2xl font-black font-mono mt-1 text-white">
-              R$ {totalAmount.toFixed(2)}
-            </p>
-            <p className="text-[11px] text-blue-300 mt-1 font-mono font-bold">
-              {maxInstallmentsCard > 1 ? `${maxInstallmentsCard}x de R$ ${(totalAmount / maxInstallmentsCard).toFixed(2)}` : 'À vista no cartão'}
-            </p>
+      <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-sm space-y-6 border border-slate-800">
+        
+        {/* Header Bar: Total General & Desconto À Vista */}
+        <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-950/80 p-4 rounded-xl border border-slate-800">
+          <div>
+            <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider block">Total Geral do Orçamento</span>
+            <span className="text-3xl font-black font-mono text-emerald-400">R$ {totalAmount.toFixed(2)}</span>
           </div>
 
-          {/* Total À Vista */}
-          <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
-            <div className="flex justify-between items-center text-xs font-semibold text-slate-400">
-              <span>A Vista (Desconto)</span>
-              <div className="flex items-center gap-1">
-                <span>% Desconto:</span>
+          <div className="flex flex-wrap items-center gap-4 bg-slate-900/90 p-3 rounded-lg border border-slate-700/60">
+            <div>
+              <span className="text-[11px] font-bold text-slate-300 block mb-0.5">Desconto À Vista (%)</span>
+              <div className="flex items-center gap-1.5">
                 <input
                   type="number"
                   min="0"
                   max="50"
                   value={cashDiscountPercent}
                   onChange={(e) => setCashDiscountPercent(Number(e.target.value))}
-                  className="w-12 p-0.5 bg-slate-900 border border-slate-600 rounded text-center font-bold text-xs text-blue-300"
+                  className="w-14 p-1 bg-slate-950 border border-slate-600 rounded text-center font-bold text-xs text-blue-300 focus:outline-hidden"
                 />
+                <span className="text-xs text-slate-400 font-bold">%</span>
               </div>
             </div>
-            <p className="text-2xl font-black font-mono mt-1 text-emerald-400">
-              R$ {cashTotalAmount.toFixed(2)}
-            </p>
+            
+            <div className="border-l border-slate-700 pl-4">
+              <span className="text-[11px] text-slate-400 font-semibold block">Total À Vista (c/ Desconto)</span>
+              <span className="text-lg font-black font-mono text-emerald-300">R$ {cashTotalAmount.toFixed(2)}</span>
+            </div>
           </div>
+        </div>
+
+        {/* Dynamic Payment Split Section */}
+        <div className="bg-slate-800/90 p-5 rounded-xl border border-purple-500/30 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700/80 pb-3">
+            <div className="flex items-center gap-2">
+              <Layers className="w-5 h-5 text-purple-400" />
+              <div>
+                <h4 className="font-bold text-sm text-white uppercase tracking-wider">
+                  Divisão de Pagamento & Condições Negociadas
+                </h4>
+                <p className="text-[11px] text-purple-300">
+                  Defina de forma 100% dinâmica as formas de pagamento escolhidas pelo cliente (Dinheiro, PIX, Cartão, Permuta, etc.)
+                </p>
+              </div>
+            </div>
+
+            {/* Quick Presets Bar */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] text-slate-400 font-bold mr-1">Predefinições Rápida:</span>
+              <button
+                type="button"
+                onClick={() => handleApplyPresetSplit('vista')}
+                className="px-2.5 py-1 bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/40 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1"
+                title="Aplicar 100% à vista no PIX com desconto"
+              >
+                <span>⚡ 100% À Vista</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleApplyPresetSplit('50_50')}
+                className="px-2.5 py-1 bg-blue-950/80 hover:bg-blue-900 text-blue-300 border border-blue-500/40 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1"
+                title="Aplicar Entrada + Saldo na instalação"
+              >
+                <span>🤝 Entrada + Saldo</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleApplyPresetSplit('cartao')}
+                className="px-2.5 py-1 bg-sky-950/80 hover:bg-sky-900 text-sky-300 border border-sky-500/40 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1"
+                title="Aplicar Cartão de Crédito Parcelado"
+              >
+                <span>💳 Cartão de Crédito</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleApplyPresetSplit('permuta')}
+                className="px-2.5 py-1 bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-500/40 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1"
+                title="Aplicar Permuta + Saldo"
+              >
+                <span>🔄 Permuta</span>
+              </button>
+            </div>
+          </div>
+
+          {/* List of Payment Splits */}
+          {paymentSplits.length === 0 ? (
+            <div className="text-center p-6 bg-slate-950/50 rounded-xl border border-dashed border-slate-700 space-y-3">
+              <p className="text-xs text-slate-300">
+                Nenhuma divisão de pagamento selecionada ainda. Escolha uma predefinição acima ou monte as formas negociadas:
+              </p>
+              <div className="flex flex-wrap justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleAddPaymentSplit('PIX', 'Pagamento via PIX')}
+                  className="px-3.5 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer inline-flex items-center gap-2 shadow-xs"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>+ Adicionar PIX / Dinheiro</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleAddPaymentSplit('Cartão de Crédito', `${maxInstallmentsCard}x no Cartão`)}
+                  className="px-3.5 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer inline-flex items-center gap-2 shadow-xs"
+                >
+                  <CreditCard className="w-4 h-4" />
+                  <span>+ Adicionar Cartão de Crédito</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleAddPaymentSplit('Permuta', 'Descrição do bem/serviço em permuta')}
+                  className="px-3.5 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer inline-flex items-center gap-2 shadow-xs"
+                >
+                  <span>🔄 + Adicionar Permuta</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {paymentSplits.map((split, index) => (
+                <div
+                  key={split.id}
+                  className="bg-slate-950/90 p-3.5 rounded-xl border border-slate-800 space-y-3"
+                >
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center">
+                    {/* Method Selector */}
+                    <div className="sm:col-span-3">
+                      <label className="block text-[10px] text-slate-300 font-bold mb-1">
+                        Forma #{index + 1}
+                      </label>
+                      <select
+                        value={split.method}
+                        onChange={(e) => handleUpdatePaymentSplit(split.id, { method: e.target.value as PaymentMethodType })}
+                        className="w-full p-2 bg-slate-900 border border-slate-700 rounded-lg text-xs font-bold text-white focus:border-purple-500 focus:outline-hidden cursor-pointer"
+                      >
+                        <option value="Dinheiro">💵 Dinheiro</option>
+                        <option value="PIX">⚡ PIX</option>
+                        <option value="Cartão de Crédito">💳 Cartão de Crédito</option>
+                        <option value="Cartão de Débito">💳 Cartão de Débito</option>
+                        <option value="Boleto">📄 Boleto</option>
+                        <option value="Cheque">🏦 Cheque</option>
+                        <option value="Permuta">🔄 PERMUTA (Troca/Serviço)</option>
+                        <option value="Outro">⚙️ Outro</option>
+                      </select>
+                    </div>
+
+                    {/* Amount R$ */}
+                    <div className="sm:col-span-3">
+                      <label className="block text-[10px] text-slate-300 font-bold mb-1">
+                        Valor Destinado (R$)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={split.amount}
+                        onChange={(e) => handleUpdatePaymentSplit(split.id, { amount: Number(e.target.value) })}
+                        className="w-full p-2 bg-slate-900 border border-purple-500/50 rounded-lg text-xs font-black font-mono text-purple-300 focus:border-purple-400 focus:outline-hidden"
+                        placeholder="0.00"
+                      />
+                    </div>
+
+                    {/* Description / Details */}
+                    <div className="sm:col-span-5">
+                      <label className="block text-[10px] text-slate-300 font-bold mb-1">
+                        {split.method === 'Permuta' ? 'Descrição detalhada da Permuta' : 'Observações / Detalhes'}
+                      </label>
+                      <input
+                        type="text"
+                        value={split.description || ''}
+                        onChange={(e) => handleUpdatePaymentSplit(split.id, { description: e.target.value })}
+                        placeholder={
+                          split.method === 'Permuta'
+                            ? 'Ex: Serviço de pintura predial / Troca de veículo / Vidros da obra B'
+                            : 'Ex: Entrada no PIX / Saldo na instalação / Boleto 30 dias'
+                        }
+                        className="w-full p-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-200 focus:border-purple-500 focus:outline-hidden placeholder-slate-500"
+                      />
+                    </div>
+
+                    {/* Delete button */}
+                    <div className="sm:col-span-1 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => handleRemovePaymentSplit(split.id)}
+                        className="p-2 text-red-400 hover:text-red-200 hover:bg-red-950/50 rounded-lg transition-colors cursor-pointer"
+                        title="Remover esta forma"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Special options inline if Cartão de Crédito */}
+                  {split.method === 'Cartão de Crédito' && (
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-900/80 p-2.5 rounded-lg border border-sky-500/30 text-xs mt-2">
+                      <div>
+                        <span className="text-[10px] font-bold text-sky-300 block mb-0.5">Nº de Parcelas</span>
+                        <select
+                          value={split.installments || maxInstallmentsCard || 12}
+                          onChange={(e) => {
+                            const inst = Number(e.target.value);
+                            handleUpdatePaymentSplit(split.id, { installments: inst });
+                            setMaxInstallmentsCard(inst);
+                          }}
+                          className="w-full p-1.5 bg-slate-950 border border-slate-700 rounded text-xs font-bold text-sky-300 focus:outline-hidden cursor-pointer"
+                        >
+                          <option value={1}>1x (À vista no Cartão)</option>
+                          <option value={2}>2x parcelado</option>
+                          <option value={3}>3x parcelado</option>
+                          <option value={4}>4x parcelado</option>
+                          <option value={5}>5x parcelado</option>
+                          <option value={6}>6x parcelado</option>
+                          <option value={8}>8x parcelado</option>
+                          <option value={10}>10x parcelado</option>
+                          <option value={12}>12x parcelado</option>
+                          <option value={18}>18x parcelado</option>
+                          <option value={24}>24x parcelado</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <span className="text-[10px] font-bold text-sky-300 block mb-0.5">Taxa da Máquina (%)</span>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            max="50"
+                            value={cardFeePercent}
+                            onChange={(e) => {
+                              const fee = Number(e.target.value);
+                              setCardFeePercent(fee);
+                            }}
+                            className="w-full p-1.5 bg-slate-950 border border-slate-700 rounded text-xs font-bold text-white font-mono pr-6 focus:outline-hidden"
+                            placeholder="0"
+                          />
+                          <span className="absolute right-2 top-1.5 text-xs text-slate-400 font-bold">%</span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col justify-center">
+                        <span className="text-[10px] text-slate-400 block">Valor da Parcela:</span>
+                        <span className="font-bold text-sky-300 font-mono text-sm">
+                          {(split.installments || 1) > 1
+                            ? `${split.installments}x de R$ ${(split.amount / (split.installments || 1)).toFixed(2)}`
+                            : `1x de R$ ${split.amount.toFixed(2)}`}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {/* Bottom bar for Divisão de Pagamento */}
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-2 bg-slate-950/60 p-3 rounded-xl border border-slate-800">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleAddPaymentSplit('PIX', '')}
+                    className="px-3 py-1.5 bg-purple-950 hover:bg-purple-900 text-purple-300 border border-purple-500/50 text-xs font-bold rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1.5"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ Adicionar Forma</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleAddPaymentSplit('Permuta', 'Descrição da permuta')}
+                    className="px-3 py-1.5 bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-500/50 text-xs font-bold rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1.5"
+                  >
+                    <span>🔄 + Permuta</span>
+                  </button>
+                </div>
+
+                <div className="text-xs font-mono font-bold text-slate-300 flex flex-wrap items-center gap-3">
+                  <div>
+                    <span className="text-slate-400">Soma das Formas:</span>{' '}
+                    <span className="text-purple-300 font-black">
+                      R$ {currentSplitSum.toFixed(2)}
+                    </span>
+                  </div>
+
+                  {unallocatedAmount > 0 ? (
+                    <span className="text-amber-400 font-bold bg-amber-950/80 px-2.5 py-1 rounded-md border border-amber-500/40 text-[11px]">
+                      ⚠️ Falta alocar: R$ {unallocatedAmount.toFixed(2)}
+                    </span>
+                  ) : (
+                    <span className="text-emerald-400 font-bold bg-emerald-950/80 px-2.5 py-1 rounded-md border border-emerald-500/40 text-[11px]">
+                      ✓ 100% Alocado (R$ {totalAmount.toFixed(2)})
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
 
           {/* Custom Entrada & Saldo A Prazo Section */}
           <div className="bg-slate-800 p-4 rounded-xl border border-blue-500/30 md:col-span-3 space-y-4">
@@ -909,8 +1254,6 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({
             </div>
 
           </div>
-
-        </div>
 
         {/* Observations */}
         <div>

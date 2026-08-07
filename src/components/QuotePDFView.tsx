@@ -72,12 +72,18 @@ export const QuotePDFView: React.FC<QuotePDFViewProps> = ({
       )
       .join('\n');
 
+    const cardAmt = quote.cardTotalAmount || quote.totalAmount;
     const installmentsText =
       quote.maxInstallmentsCard && quote.maxInstallmentsCard > 1
-        ? `*Total Cartão:* ${formatCurrency(quote.totalAmount)} (Até ${quote.maxInstallmentsCard}x de ${formatCurrency(
-            quote.totalAmount / quote.maxInstallmentsCard
+        ? `*Total Cartão:* ${formatCurrency(cardAmt)} (${quote.maxInstallmentsCard}x de ${formatCurrency(
+            cardAmt / quote.maxInstallmentsCard
           )})`
-        : `*Total Cartão:* ${formatCurrency(quote.totalAmount)}`;
+        : `*Total Cartão:* ${formatCurrency(cardAmt)}`;
+
+    const splitsText = quote.paymentSplits && quote.paymentSplits.length > 0
+      ? `\n🔀 *DIVISÃO DE PAGAMENTO / PERMUTA:*
+` + quote.paymentSplits.map(s => `• *${s.method}:* ${formatCurrency(s.amount)}${s.description ? ` (${s.description})` : ''}`).join('\n')
+      : '';
 
     const depositAmt = quote.depositAmount !== undefined ? quote.depositAmount : quote.totalAmount / 2;
     const remainingAmt = quote.remainingAmount !== undefined ? quote.remainingAmount : quote.totalAmount - depositAmt;
@@ -101,7 +107,7 @@ ${itemsList}
 💰 *VALORES & CONDIÇÕES:*
 • ${installmentsText}
 • *À Vista (com desconto):* ${formatCurrency(quote.cashTotalAmount)}
-${depositText}
+${depositText}${splitsText}
 • *Acabamento:* ${quote.finishColor} ${quote.finishColorOther ? `(${quote.finishColorOther})` : ''}
 
 📅 *Validade da proposta:* ${quote.validUntilDays || 15} dias.
@@ -325,13 +331,16 @@ Ficamos à disposição para agendar sua instalação!`;
             <div className="flex justify-between items-center p-1.5" style={{ backgroundColor: '#f8fafc' }}>
               <span className="font-extrabold uppercase">
                 Total - Até {quote.maxInstallmentsCard || 12}x no Cartão
+                {quote.cardFeePercent ? ` (Taxa Máquina ${quote.cardFeePercent}%)` : ''}
                 {quote.maxInstallmentsCard && quote.maxInstallmentsCard > 1 && (
                   <span className="ml-1 font-mono font-semibold text-[9.5px] text-slate-700">
-                    ({quote.maxInstallmentsCard}x de {formatCurrency(quote.totalAmount / quote.maxInstallmentsCard)})
+                    ({quote.maxInstallmentsCard}x de {formatCurrency((quote.cardTotalAmount || quote.totalAmount) / quote.maxInstallmentsCard)})
                   </span>
                 )}
               </span>
-              <span className="font-mono text-xs font-black text-black">{formatCurrency(quote.totalAmount)}</span>
+              <span className="font-mono text-xs font-black text-black">
+                {formatCurrency(quote.cardTotalAmount || quote.totalAmount)}
+              </span>
             </div>
 
             {/* Cash Total */}
@@ -339,6 +348,26 @@ Ficamos à disposição para agendar sua instalação!`;
               <span className="font-extrabold uppercase">A Vista (com desconto)</span>
               <span className="font-mono text-xs font-black text-black">{formatCurrency(quote.cashTotalAmount)}</span>
             </div>
+
+            {/* Payment Splits & Permuta list if present */}
+            {quote.paymentSplits && quote.paymentSplits.length > 0 && (
+              <div className="p-1.5 bg-purple-50/60 border-t border-black text-[10px]">
+                <div className="font-black uppercase text-purple-950 border-b border-purple-200 pb-0.5 mb-1">
+                  Divisão do Pagamento (Formas Combinadas & Permuta):
+                </div>
+                <div className="space-y-0.5">
+                  {quote.paymentSplits.map((s, idx) => (
+                    <div key={s.id || idx} className="flex justify-between font-mono">
+                      <span>
+                        <strong className="uppercase">{s.method}</strong>
+                        {s.description ? ` - ${s.description}` : ''}
+                      </span>
+                      <span className="font-bold">{formatCurrency(s.amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Finish Color Checkboxes */}
             <div className="p-1 text-center font-black uppercase text-[10px] tracking-wide" style={{ backgroundColor: '#f1f5f9' }}>

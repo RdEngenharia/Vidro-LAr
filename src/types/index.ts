@@ -59,6 +59,24 @@ export interface QuoteItem {
   pricingType?: 'm2' | 'unit';
 }
 
+export type PaymentMethodType = 
+  | 'Dinheiro' 
+  | 'PIX' 
+  | 'Cartão de Crédito' 
+  | 'Cartão de Débito' 
+  | 'Boleto' 
+  | 'Cheque' 
+  | 'Permuta' 
+  | 'Outro';
+
+export interface PaymentSplit {
+  id: string;
+  method: PaymentMethodType;
+  amount: number;
+  installments?: number;
+  description?: string;
+}
+
 export interface Quote {
   id: string;
   codeNumber: number; // e.g. #1001
@@ -78,6 +96,11 @@ export interface Quote {
   cashDiscountPercent: number; // e.g. 10% or 15% for cash
   cashTotalAmount: number; // Valor à vista com desconto
   maxInstallmentsCard: number; // e.g. 12x
+  cardFeePercent?: number; // Taxa da máquina de cartão (ex: 5%, 8%, 10%)
+  cardTotalAmount?: number; // Valor total customizado do cartão
+  
+  // Multiple payment methods (Dinheiro + Cartão + Permuta, etc.)
+  paymentSplits?: PaymentSplit[];
   
   // Payment tracking (Customizable deposit & remaining)
   depositPaid: boolean;
