@@ -1173,7 +1173,15 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({
                           value={split.installments || maxInstallmentsCard || 12}
                           onChange={(e) => {
                             const inst = Number(e.target.value);
-                            handleUpdatePaymentSplit(split.id, { installments: inst });
+                            // Só regenera a descrição se ela ainda for o texto padrão
+                            // (ex: "Parcelado em 12x no Cartão"), para não sobrescrever
+                            // uma descrição que o usuário tenha digitado manualmente.
+                            const isAutoDescription =
+                              !split.description || /^Parcelado em \d+x no Cartão$/.test(split.description);
+                            handleUpdatePaymentSplit(split.id, {
+                              installments: inst,
+                              ...(isAutoDescription ? { description: `Parcelado em ${inst}x no Cartão` } : {}),
+                            });
                             setMaxInstallmentsCard(inst);
                           }}
                           className="w-full p-1.5 bg-slate-950 border border-slate-700 rounded text-xs font-bold text-sky-300 focus:outline-hidden cursor-pointer"
