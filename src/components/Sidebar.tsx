@@ -6,8 +6,7 @@ import {
   Settings,
   RefreshCw,
   ShieldCheck,
-  Building,
-  DollarSign
+  Building
 } from 'lucide-react';
 
 export type TabType = 'quotes' | 'customers' | 'categories' | 'settings' | 'deploy';
@@ -94,17 +93,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           );
         })}
-      </div>
-
-      {/* Financial status summary helper card */}
-      <div className="p-4 mx-4 my-2 rounded-xl bg-slate-50 border border-slate-200">
-        <div className="flex items-center gap-2 text-slate-900 font-semibold text-xs mb-1">
-          <DollarSign className="w-4 h-4 text-emerald-600" />
-          <span>Controle de 50% Entrada</span>
-        </div>
-        <p className="text-[11px] text-slate-500 leading-relaxed">
-          Na vidraçaria, o cliente paga 50% de entrada para congelar valores e os 50% restantes após a conclusão da obra (até 1 ano).
-        </p>
       </div>
     </aside>
   );

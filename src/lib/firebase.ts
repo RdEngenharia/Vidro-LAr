@@ -20,7 +20,11 @@ let db: Firestore | null = null;
 try {
   app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
   auth = getAuth(app);
-  db = getFirestore(app);
+  // IMPORTANTE: aponta explicitamente para o banco de dados chamado "default" —
+  // se o banco do Firestore foi criado como um banco nomeado literalmente "default"
+  // (em vez do banco reservado especial que o SDK usa por padrão quando nenhum nome
+  // é informado), essa linha resolve o erro "Database '(default)' not found".
+  db = getFirestore(app, 'default');
 } catch (error) {
   console.warn("Firebase initialization warning (operating in local IndexedDB mode):", error);
 }
