@@ -32,12 +32,15 @@ import {
 } from '../lib/logger';
 import { getCustomers, getQuotes } from '../lib/db';
 import { syncEngine } from '../lib/sync';
+import { CompanySettings } from '../types';
 
 interface DevConsoleModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentTenantId: string;
   currentUserEmail?: string;
+  companySettings?: CompanySettings | null;
+  onUpdateSettings?: (settings: CompanySettings) => Promise<void>;
 }
 
 const DEFAULT_DEV_PASSWORD = 'dev123';
@@ -47,6 +50,8 @@ export const DevConsoleModal: React.FC<DevConsoleModalProps> = ({
   onClose,
   currentTenantId,
   currentUserEmail,
+  companySettings,
+  onUpdateSettings,
 }) => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -62,14 +67,21 @@ export const DevConsoleModal: React.FC<DevConsoleModalProps> = ({
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [changePasswordMsg, setChangePasswordMsg] = useState('');
+  const [isResettingViaAccount, setIsResettingViaAccount] = useState(false);
+  const [resetPasswordValue, setResetPasswordValue] = useState('');
+  const [isSavingPassword, setIsSavingPassword] = useState(false);
 
   // Diagnostic status
   const [dbHealth, setDbHealth] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle');
   const [dbDetails, setDbDetails] = useState<string>('');
   const [syncQueueCount, setSyncQueueCount] = useState<number>(0);
 
+  // A senha do Modo Dev agora vive nas Configurações da Empresa (sincronizada via
+  // Firestore), não mais em localStorage — assim ela é a mesma em qualquer aparelho
+  // em que o dono da conta fizer login, e pode ser redefinida se for esquecida
+  // (já que chegar até aqui exige estar logado de verdade com a conta real).
   const getSavedDevPassword = () => {
-    return localStorage.getItem('vidracaria_dev_password') || DEFAULT_DEV_PASSWORD;
+    return companySettings?.devPanelPassword || DEFAULT_DEV_PASSWORD;
   };
 
   const loadLogs = () => {
@@ -87,6 +99,8 @@ export const DevConsoleModal: React.FC<DevConsoleModalProps> = ({
       setPasswordError('');
       setIsChangingPassword(false);
       setChangePasswordMsg('');
+      setIsResettingViaAccount(false);
+      setResetPasswordValue('');
 
       if (unlockedSession) {
         loadLogs();
@@ -124,16 +138,56 @@ export const DevConsoleModal: React.FC<DevConsoleModalProps> = ({
     setIsUnlocked(false);
   };
 
-  const handleChangePassword = (e: React.FormEvent) => {
+  const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPassword.trim()) return;
-    localStorage.setItem('vidracaria_dev_password', newPassword.trim());
-    setChangePasswordMsg('Senha do desenvolvedor alterada com sucesso!');
-    setNewPassword('');
-    setTimeout(() => {
-      setIsChangingPassword(false);
-      setChangePasswordMsg('');
-    }, 2000);
+    if (!newPassword.trim() || !onUpdateSettings || !companySettings) return;
+    setIsSavingPassword(true);
+    try {
+      await onUpdateSettings({ ...companySettings, devPanelPassword: newPassword.trim() });
+      setChangePasswordMsg('Senha do desenvolvedor alterada com sucesso! Vale para qualquer dispositivo.');
+      setNewPassword('');
+      setTimeout(() => {
+        setIsChangingPassword(false);
+        setChangePasswordMsg('');
+      }, 2500);
+    } catch (err) {
+      setChangePasswordMsg('Erro ao salvar a nova senha. Tente novamente.');
+    } finally {
+      setIsSavingPassword(false);
+    }
+  };
+
+  // "Esqueci a senha do Modo Dev": como chegar até esta tela já exige estar logado
+  // com a conta real da vidraçaria (Firebase Auth), essa sessão já prova quem é o
+  // dono da conta — então permitimos definir uma nova senha do painel diretamente,
+  // sem precisar da antiga, e já libera o acesso nessa mesma ação.
+  const handleResetPasswordViaAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetPasswordValue.trim() || resetPasswordValue.trim().length < 4) {
+      setPasswordError('A nova senha precisa ter pelo menos 4 caracteres.');
+      return;
+    }
+    if (!onUpdateSettings || !companySettings) {
+      setPasswordError('Não foi possível salvar: configurações da empresa indisponíveis.');
+      return;
+    }
+    setIsSavingPassword(true);
+    try {
+      await onUpdateSettings({ ...companySettings, devPanelPassword: resetPasswordValue.trim() });
+      sessionStorage.setItem('vidracaria_dev_unlocked', 'true');
+      setIsUnlocked(true);
+      setPasswordError('');
+      setIsResettingViaAccount(false);
+      setResetPasswordValue('');
+      loadLogs();
+      logInfo('DEV_CONSOLE_PASSWORD_RESET', 'Senha do Modo Dev redefinida via conta autenticada', {
+        resetBy: currentUserEmail || 'Dev',
+      });
+    } catch {
+      setPasswordError('Erro ao salvar a nova senha. Tente novamente.');
+    } finally {
+      setIsSavingPassword(false);
+    }
   };
 
   // Filtered logs
@@ -280,6 +334,54 @@ export const DevConsoleModal: React.FC<DevConsoleModalProps> = ({
               </button>
             </div>
           </form>
+
+          {!isResettingViaAccount ? (
+            <div className="mt-4 pt-4 border-t border-slate-800 text-center">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsResettingViaAccount(true);
+                  setPasswordError('');
+                }}
+                className="text-xs font-bold text-blue-400 hover:underline cursor-pointer"
+              >
+                Esqueci a senha do Modo Dev
+              </button>
+              <p className="text-[10px] text-slate-500 mt-1.5">
+                Você já está logado como <strong>{currentUserEmail || 'sua conta'}</strong> — pode redefinir direto, sem precisar da senha antiga.
+              </p>
+            </div>
+          ) : (
+            <form onSubmit={handleResetPasswordViaAccount} className="mt-4 pt-4 border-t border-slate-800 space-y-3">
+              <p className="text-[11px] text-slate-400">
+                Como você já está logado com sua conta real, pode definir uma nova senha do Modo Dev agora mesmo:
+              </p>
+              <input
+                type="text"
+                value={resetPasswordValue}
+                onChange={(e) => setResetPasswordValue(e.target.value)}
+                placeholder="Nova senha do Modo Dev..."
+                autoFocus
+                className="w-full p-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-500 focus:border-blue-500 focus:outline-hidden"
+              />
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setIsResettingViaAccount(false); setResetPasswordValue(''); setPasswordError(''); }}
+                  className="px-3 py-2 text-xs font-semibold text-slate-400 hover:text-white transition-colors cursor-pointer"
+                >
+                  Voltar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingPassword}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-md"
+                >
+                  {isSavingPassword ? 'Salvando...' : 'Definir Nova Senha e Entrar'}
+                </button>
+              </div>
+            </form>
+          )}
         </div>
       ) : (
         /* Full Unlocked Console */
@@ -349,10 +451,10 @@ export const DevConsoleModal: React.FC<DevConsoleModalProps> = ({
                 />
                 <button
                   type="submit"
-                  disabled={!newPassword.trim()}
+                  disabled={!newPassword.trim() || isSavingPassword}
                   className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg transition-colors cursor-pointer disabled:opacity-50 text-xs shrink-0"
                 >
-                  Salvar
+                  {isSavingPassword ? 'Salvando...' : 'Salvar'}
                 </button>
               </form>
               {changePasswordMsg && (

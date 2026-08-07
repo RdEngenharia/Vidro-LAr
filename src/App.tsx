@@ -217,6 +217,8 @@ function MainApp() {
         onClose={() => setIsDevConsoleOpen(false)}
         currentTenantId={tenantId}
         currentUserEmail={user?.email}
+        companySettings={settings}
+        onUpdateSettings={updateSettings}
       />
 
       {user && (

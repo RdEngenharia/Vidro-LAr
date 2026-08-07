@@ -142,6 +142,9 @@ export interface CompanySettings {
   defaultCashDiscount: number; // e.g. 10%
   defaultValidDays: number; // e.g. 15
   termsText: string;
+  devPanelPassword?: string; // Senha do Painel do Desenvolvedor (Modo Dev). Sincronizada
+  // via Firestore junto com as demais configurações da empresa, para valer em
+  // qualquer dispositivo/navegador em que o dono da conta fizer login.
 }
 
 export interface UserProfile {
