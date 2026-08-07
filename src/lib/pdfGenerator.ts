@@ -1,6 +1,52 @@
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 
+// Sanitiza o documento clonado usado pelo html2canvas para capturar a tela, removendo
+// qualquer cor no formato oklch() (usado por padrão no Tailwind v4) — o html2canvas não
+// sabe interpretar oklch() e lança erro ao tentar desenhar o elemento, quebrando a geração
+// do PDF/impressão. Compartilhada entre generateQuotePDF e getQuotePDFFile para não haver
+// duas cópias desatualizadas da mesma correção.
+function sanitizeClonedDocForCanvas(clonedDoc: Document) {
+  // 1. Sanitiza qualquer <style> contendo definições oklch
+  const styleTags = clonedDoc.querySelectorAll('style');
+  styleTags.forEach((style) => {
+    if (style.innerHTML && style.innerHTML.includes('oklch')) {
+      style.innerHTML = style.innerHTML.replace(/oklch\([^)]+\)/gi, '#000000');
+    }
+  });
+
+  // 2. Percorre os elementos do clone convertendo qualquer estilo computado com oklch
+  const allElements = clonedDoc.querySelectorAll('*');
+  allElements.forEach((el) => {
+    const htmlEl = el as HTMLElement;
+    try {
+      const computed = window.getComputedStyle(htmlEl);
+      ['color', 'backgroundColor', 'borderColor', 'fill', 'stroke', 'outlineColor', 'textDecorationColor'].forEach((prop) => {
+        const val = computed.getPropertyValue(prop);
+        if (val && val.includes('oklch')) {
+          if (prop === 'backgroundColor') {
+            htmlEl.style.backgroundColor = '#ffffff';
+          } else if (prop === 'borderColor') {
+            htmlEl.style.borderColor = '#000000';
+          } else if (prop === 'color') {
+            htmlEl.style.color = '#000000';
+          } else {
+            htmlEl.style.setProperty(prop.replace(/([A-Z])/g, '-$1').toLowerCase(), 'initial');
+          }
+        }
+      });
+      // box-shadow (usado por ring-*/shadow-* do Tailwind) também pode conter oklch()
+      // e não pode ser convertido para uma cor simples — mais seguro remover na captura.
+      const boxShadow = computed.getPropertyValue('box-shadow');
+      if (boxShadow && boxShadow.includes('oklch')) {
+        htmlEl.style.boxShadow = 'none';
+      }
+    } catch {
+      // Ignora se a leitura do estilo falhar em um nó já desconectado
+    }
+  });
+}
+
 export async function generateQuotePDF(elementId: string, filename: string = 'Orcamento.pdf'): Promise<void> {
   const element = document.getElementById(elementId);
   if (!element) {
@@ -14,39 +60,7 @@ export async function generateQuotePDF(elementId: string, filename: string = 'Or
     logging: false,
     backgroundColor: '#ffffff',
     windowWidth: 1024,
-    onclone: (clonedDoc) => {
-      // 1. Sanitize any <style> tags containing oklch definitions
-      const styleTags = clonedDoc.querySelectorAll('style');
-      styleTags.forEach((style) => {
-        if (style.innerHTML && style.innerHTML.includes('oklch')) {
-          // Replace oklch(...) occurrences with safe hex / rgb fallbacks
-          style.innerHTML = style.innerHTML.replace(/oklch\([^)]+\)/gi, '#000000');
-        }
-      });
-
-      // 2. Iterate through elements inside clonedDoc to convert any computed oklch inline styles to hex/rgb
-      const allElements = clonedDoc.querySelectorAll('*');
-      allElements.forEach((el) => {
-        const htmlEl = el as HTMLElement;
-        try {
-          const computed = window.getComputedStyle(htmlEl);
-          ['color', 'backgroundColor', 'borderColor', 'fill', 'stroke'].forEach((prop) => {
-            const val = computed.getPropertyValue(prop);
-            if (val && val.includes('oklch')) {
-              if (prop === 'backgroundColor') {
-                htmlEl.style.backgroundColor = '#ffffff';
-              } else if (prop === 'borderColor') {
-                htmlEl.style.borderColor = '#000000';
-              } else if (prop === 'color') {
-                htmlEl.style.color = '#000000';
-              }
-            }
-          });
-        } catch {
-          // Ignore if style reading fails on detached node
-        }
-      });
-    },
+    onclone: sanitizeClonedDocForCanvas,
   });
 
   const imgData = canvas.toDataURL('image/png');
@@ -84,36 +98,7 @@ export async function getQuotePDFFile(elementId: string, filename: string = 'Orc
     logging: false,
     backgroundColor: '#ffffff',
     windowWidth: 1024,
-    onclone: (clonedDoc) => {
-      const styleTags = clonedDoc.querySelectorAll('style');
-      styleTags.forEach((style) => {
-        if (style.innerHTML && style.innerHTML.includes('oklch')) {
-          style.innerHTML = style.innerHTML.replace(/oklch\([^)]+\)/gi, '#000000');
-        }
-      });
-
-      const allElements = clonedDoc.querySelectorAll('*');
-      allElements.forEach((el) => {
-        const htmlEl = el as HTMLElement;
-        try {
-          const computed = window.getComputedStyle(htmlEl);
-          ['color', 'backgroundColor', 'borderColor', 'fill', 'stroke'].forEach((prop) => {
-            const val = computed.getPropertyValue(prop);
-            if (val && val.includes('oklch')) {
-              if (prop === 'backgroundColor') {
-                htmlEl.style.backgroundColor = '#ffffff';
-              } else if (prop === 'borderColor') {
-                htmlEl.style.borderColor = '#000000';
-              } else if (prop === 'color') {
-                htmlEl.style.color = '#000000';
-              }
-            }
-          });
-        } catch {
-          // ignore
-        }
-      });
-    },
+    onclone: sanitizeClonedDocForCanvas,
   });
 
   const imgData = canvas.toDataURL('image/png');

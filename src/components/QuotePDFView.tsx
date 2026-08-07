@@ -2,6 +2,7 @@ import React from 'react';
 import { Quote, CompanySettings } from '../types';
 import { Printer, Download, ArrowLeft, CheckCircle2, Clock, DollarSign, MessageCircle } from 'lucide-react';
 import { generateQuotePDF, printQuoteDirectly } from '../lib/pdfGenerator';
+import { logError } from '../lib/logger';
 
 interface QuotePDFViewProps {
   quote: Quote;
@@ -47,8 +48,8 @@ export const QuotePDFView: React.FC<QuotePDFViewProps> = ({
     try {
       await generateQuotePDF('pdf-quote-canvas', `Orcamento_${quote.codeNumber}_${quote.customerName.replace(/\s+/g, '_')}.pdf`);
     } catch (e) {
-      console.error('Error generating PDF:', e);
-      alert('Erro ao gerar PDF. Verifique se o navegador suporta a captura de tela.');
+      logError('GENERATE_PDF', e, { quoteId: quote.id, codeNumber: quote.codeNumber });
+      alert('Erro ao gerar PDF. Detalhes técnicos foram registrados no Painel do Desenvolvedor.');
     }
   };
 
@@ -80,21 +81,29 @@ export const QuotePDFView: React.FC<QuotePDFViewProps> = ({
           )})`
         : `*Total Cartão:* ${formatCurrency(cardAmt)}`;
 
-    const splitsText = quote.paymentSplits && quote.paymentSplits.length > 0
-      ? `\n🔀 *DIVISÃO DE PAGAMENTO:*
-` + quote.paymentSplits.map(s => `• *${s.method}:* ${formatCurrency(s.amount)}${s.description ? ` (${s.description})` : ''}`).join('\n')
+    const hasPaymentSplits = !!(quote.paymentSplits && quote.paymentSplits.length > 0);
+
+    const splitsText = hasPaymentSplits
+      ? `\n🔀 *FORMA DE PAGAMENTO ESCOLHIDA:*
+` + quote.paymentSplits!.map(s => `• *${s.method}:* ${formatCurrency(s.amount)}${s.description ? ` (${s.description})` : ''}`).join('\n')
       : '';
 
-    const depositAmt = quote.depositAmount !== undefined ? quote.depositAmount : quote.totalAmount / 2;
-    const remainingAmt = quote.remainingAmount !== undefined ? quote.remainingAmount : quote.totalAmount - depositAmt;
-    const depositPct = quote.depositPercent !== undefined 
-      ? quote.depositPercent 
-      : (quote.totalAmount > 0 ? Math.round((depositAmt / quote.totalAmount) * 100) : 50);
+    // A condição genérica de Entrada+Saldo só é exibida quando NÃO existe uma Divisão de
+    // Pagamento explícita — evita contradizer a forma de pagamento realmente escolhida
+    // (ex: mensagem dizer "50% a prazo" quando o cliente pagou 100% à vista no PIX).
+    let depositText = '';
+    if (!hasPaymentSplits) {
+      const depositAmt = quote.depositAmount !== undefined ? quote.depositAmount : quote.totalAmount / 2;
+      const remainingAmt = quote.remainingAmount !== undefined ? quote.remainingAmount : quote.totalAmount - depositAmt;
+      const depositPct = quote.depositPercent !== undefined
+        ? quote.depositPercent
+        : (quote.totalAmount > 0 ? Math.round((depositAmt / quote.totalAmount) * 100) : 50);
 
-    const depositText = depositPct === 100
-      ? `• *Pagamento:* 100% À Vista (${formatCurrency(quote.totalAmount)})`
-      : `• *Entrada (${depositPct}% no pedido):* ${formatCurrency(depositAmt)}
+      depositText = depositPct === 100
+        ? `• *Pagamento:* 100% À Vista (${formatCurrency(quote.totalAmount)})`
+        : `• *Entrada (${depositPct}% no pedido):* ${formatCurrency(depositAmt)}
 • *Saldo A Prazo (${Math.max(0, 100 - depositPct)}%):* ${formatCurrency(remainingAmt)} ${quote.remainingPaymentNotes ? `(${quote.remainingPaymentNotes})` : ''}`;
+    }
 
     const message = `*${compName.toUpperCase()}*
 *ORÇAMENTO / PEDIDO #${quote.codeNumber}*
@@ -333,7 +342,7 @@ Ficamos à disposição para agendar sua instalação!`;
                 Total - Até {quote.maxInstallmentsCard || 12}x no Cartão
                 {quote.cardFeePercent ? ` (Taxa Máquina ${quote.cardFeePercent}%)` : ''}
                 {quote.maxInstallmentsCard && quote.maxInstallmentsCard > 1 && (
-                  <span className="ml-1 font-mono font-semibold text-[9.5px] text-slate-700">
+                  <span className="ml-1 font-mono font-semibold text-[9.5px]" style={{ color: '#334155' }}>
                     ({quote.maxInstallmentsCard}x de {formatCurrency((quote.cardTotalAmount || quote.totalAmount) / quote.maxInstallmentsCard)})
                   </span>
                 )}
@@ -351,8 +360,8 @@ Ficamos à disposição para agendar sua instalação!`;
 
             {/* Payment Splits & Permuta list if present */}
             {quote.paymentSplits && quote.paymentSplits.length > 0 && (
-              <div className="p-1.5 bg-purple-50/60 border-t border-black text-[10px]">
-                <div className="font-black uppercase text-purple-950 border-b border-purple-200 pb-0.5 mb-1">
+              <div className="p-1.5 border-t border-black text-[10px]" style={{ backgroundColor: '#faf5ff' }}>
+                <div className="font-black uppercase pb-0.5 mb-1 border-b" style={{ color: '#3b0764', borderColor: '#e9d5ff' }}>
                   Divisão do Pagamento:
                 </div>
                 <div className="space-y-0.5">
@@ -381,42 +390,47 @@ Ficamos à disposição para agendar sua instalação!`;
           </div>
 
           {/* Custom Deposit & Remaining Financial Status Notice */}
-          <div className="mt-2.5 p-1.5 border border-black text-[10px] font-bold flex justify-between items-center" style={{ backgroundColor: '#f8fafc', borderColor: '#000000' }}>
-            <div>
-              <span className="uppercase font-black" style={{ color: '#0f172a' }}>Condição de Pagamento Vidraçaria:</span>
-              <span className="ml-1.5 font-normal" style={{ color: '#1e293b' }}>
+          {/* Só exibe esta condição genérica de Entrada+Saldo quando NÃO há uma Divisão de
+              Pagamento explícita configurada — evita contradizer a forma de pagamento
+              realmente escolhida (ex: mostrar "50% a prazo" quando o cliente pagou 100% à vista) */}
+          {(!quote.paymentSplits || quote.paymentSplits.length === 0) && (
+            <div className="mt-2.5 p-1.5 border border-black text-[10px] font-bold flex justify-between items-center" style={{ backgroundColor: '#f8fafc', borderColor: '#000000' }}>
+              <div>
+                <span className="uppercase font-black" style={{ color: '#0f172a' }}>Condição de Pagamento Vidraçaria:</span>
+                <span className="ml-1.5 font-normal" style={{ color: '#1e293b' }}>
+                  {(() => {
+                    const depAmt = quote.depositAmount !== undefined ? quote.depositAmount : quote.totalAmount / 2;
+                    const depPct = quote.depositPercent !== undefined
+                      ? quote.depositPercent
+                      : (quote.totalAmount > 0 ? Math.round((depAmt / quote.totalAmount) * 100) : 50);
+
+                    if (depPct >= 100) return '100% À vista no pedido para faturamento e produção imediata.';
+                    if (depPct <= 0) return `100% A prazo (${quote.remainingPaymentNotes || 'conforme combinado na instalação'}).`;
+                    return `Entrada de ${depPct.toFixed(0)}% no pedido + Saldo a prazo de ${Math.max(0, 100 - depPct).toFixed(0)}% ${quote.remainingPaymentNotes ? `(${quote.remainingPaymentNotes})` : 'na conclusão da instalação'}.`;
+                  })()}
+                </span>
+              </div>
+              <div className="text-right font-mono font-black whitespace-nowrap pl-2">
                 {(() => {
                   const depAmt = quote.depositAmount !== undefined ? quote.depositAmount : quote.totalAmount / 2;
-                  const depPct = quote.depositPercent !== undefined 
-                    ? quote.depositPercent 
+                  const remAmt = quote.remainingAmount !== undefined ? quote.remainingAmount : quote.totalAmount - depAmt;
+                  const depPct = quote.depositPercent !== undefined
+                    ? quote.depositPercent
                     : (quote.totalAmount > 0 ? Math.round((depAmt / quote.totalAmount) * 100) : 50);
-                  
-                  if (depPct >= 100) return '100% À vista no pedido para faturamento e produção imediata.';
-                  if (depPct <= 0) return `100% A prazo (${quote.remainingPaymentNotes || 'conforme combinado na instalação'}).`;
-                  return `Entrada de ${depPct.toFixed(0)}% no pedido + Saldo a prazo de ${Math.max(0, 100 - depPct).toFixed(0)}% ${quote.remainingPaymentNotes ? `(${quote.remainingPaymentNotes})` : 'na conclusão da instalação'}.`;
-                })()}
-              </span>
-            </div>
-            <div className="text-right font-mono font-black whitespace-nowrap pl-2">
-              {(() => {
-                const depAmt = quote.depositAmount !== undefined ? quote.depositAmount : quote.totalAmount / 2;
-                const remAmt = quote.remainingAmount !== undefined ? quote.remainingAmount : quote.totalAmount - depAmt;
-                const depPct = quote.depositPercent !== undefined 
-                  ? quote.depositPercent 
-                  : (quote.totalAmount > 0 ? Math.round((depAmt / quote.totalAmount) * 100) : 50);
 
-                return (
-                  <>
-                    <div>Entrada ({depPct.toFixed(0)}%): {formatCurrency(depAmt)}</div>
-                    <div>Saldo A Prazo: {formatCurrency(remAmt)}</div>
-                  </>
-                );
-              })()}
+                  return (
+                    <>
+                      <div>Entrada ({depPct.toFixed(0)}%): {formatCurrency(depAmt)}</div>
+                      <div>Saldo A Prazo: {formatCurrency(remAmt)}</div>
+                    </>
+                  );
+                })()}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Signatures */}
-          <div className="mt-8 pt-3 border-t border-dashed border-slate-400 grid grid-cols-2 gap-8 text-center text-[10px] font-bold uppercase">
+          <div className="mt-8 pt-3 border-t border-dashed grid grid-cols-2 gap-8 text-center text-[10px] font-bold uppercase" style={{ borderColor: '#94a3b8' }}>
             <div>
               <div className="border-b border-black mb-1 mx-6" style={{ borderColor: '#000000' }}></div>
               <p>{quote.customerName}</p>
