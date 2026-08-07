@@ -317,6 +317,15 @@ export async function queueSync(
     timestamp: Date.now(),
   };
   await db.put('syncQueue', syncItem);
+
+  // Avisa o motor de sincronização (sync.ts) que há um item novo pendente, para que
+  // ele tente enviar IMEDIATAMENTE (se estiver online) em vez de esperar a próxima
+  // mudança de status de conexão (que podia nunca acontecer numa sessão sempre online).
+  // Usa evento do window (mesmo padrão do logger.ts) para não criar dependência
+  // circular entre db.ts e sync.ts.
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('vidracaria_sync_queued'));
+  }
 }
 
 export async function getSyncQueue(tenantId: string): Promise<SyncQueueItem[]> {

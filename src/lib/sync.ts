@@ -24,10 +24,25 @@ class SyncEngine {
   constructor() {
     window.addEventListener('online', () => this.checkConnectivity());
     window.addEventListener('offline', () => this.handleNetworkChange(false));
-    
+
+    // Dispara uma tentativa de sincronização IMEDIATA sempre que um novo item é
+    // colocado na fila local (ver queueSync em db.ts) — sem isso, criar um orçamento
+    // enquanto já se está online nunca era enviado ao Firebase automaticamente,
+    // só quando a conexão mudava de offline para online ou no clique manual.
+    window.addEventListener('vidracaria_sync_queued', () => this.syncNow());
+
     // Initial check and periodic heartbeat check every 4 seconds
     this.checkConnectivity();
     setInterval(() => this.checkConnectivity(), 4000);
+
+    // Rede de segurança adicional: a cada 15s, se estiver online e houver itens
+    // pendentes que por algum motivo não foram sincronizados (ex: o evento acima
+    // não disparou por alguma falha), tenta novamente.
+    setInterval(() => {
+      if (this.isOnline && !this.isSyncing && this.pendingCount > 0) {
+        this.syncNow();
+      }
+    }, 15000);
   }
 
   public async checkConnectivity(): Promise<boolean> {
