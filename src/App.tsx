@@ -203,7 +203,6 @@ function MainApp() {
       {/* Login Modal overlay if no user */}
       <LoginModal
         isOpen={!user}
-        onDevConsoleClick={() => setIsDevConsoleOpen(true)}
       />
 
       {/* Deploy Guide Modal */}

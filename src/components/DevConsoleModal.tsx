@@ -263,14 +263,6 @@ export const DevConsoleModal: React.FC<DevConsoleModalProps> = ({
               )}
             </div>
 
-            <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800/80 text-[11px] text-slate-400 flex items-start gap-2">
-              <KeyRound className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
-              <span>
-                <strong>Senha padrão:</strong> <code className="bg-slate-800 px-1.5 py-0.5 rounded text-blue-300 font-mono">dev123</code>.
-                Você pode alterá-la dentro do painel após desbloquear.
-              </span>
-            </div>
-
             <div className="pt-2 flex items-center justify-end gap-2">
               <button
                 type="button"

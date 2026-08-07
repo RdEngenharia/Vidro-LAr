@@ -1,16 +1,19 @@
 import React, { useState } from 'react';
 import { useAuth } from '../lib/authContext';
-import { Building2, Lock, Mail, ShieldCheck, ArrowRight, WifiOff, Terminal } from 'lucide-react';
+import { Building2, Lock, Mail, ShieldCheck, ArrowRight, WifiOff } from 'lucide-react';
 
 interface LoginModalProps {
   isOpen: boolean;
-  onDevConsoleClick?: () => void;
 }
 
 // NOTA: o cadastro público (self-service) foi desativado por decisão do administrador.
 // Novas contas de vidraçaria são criadas manualmente no Firebase Console
 // (Authentication → Users → Add user). Esta tela só faz login (+ recuperação de senha).
-export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onDevConsoleClick }) => {
+//
+// O acesso ao Painel do Desenvolvedor foi removido desta tela pública de propósito:
+// ele fica disponível só depois de logar (pelo topo do sistema), para não expor
+// informações de diagnóstico a qualquer visitante não autenticado do site.
+export const LoginModal: React.FC<LoginModalProps> = ({ isOpen }) => {
   const { login, authError, requestPasswordReset } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResettingPassword, setIsResettingPassword] = useState(false);
@@ -61,18 +64,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onDevConsoleClic
 
         {/* Header */}
         <div className="bg-slate-900 text-white p-6 text-center relative">
-          {onDevConsoleClick && (
-            <button
-              onClick={onDevConsoleClick}
-              type="button"
-              className="absolute top-4 right-4 inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-blue-300 text-[11px] font-bold rounded-lg border border-slate-700 transition-colors cursor-pointer shadow-xs"
-              title="Abrir Painel do Desenvolvedor"
-            >
-              <Terminal className="w-3.5 h-3.5 text-blue-400" />
-              <span>Modo Dev</span>
-            </button>
-          )}
-
           <div className="w-14 h-14 rounded-2xl bg-blue-600 text-white flex items-center justify-center font-bold text-2xl mx-auto shadow-lg mb-3 border border-blue-400">
             <Building2 className="w-8 h-8" />
           </div>
@@ -162,19 +153,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onDevConsoleClic
           <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-700 text-center">
             Não tem acesso ainda? Contate o administrador do sistema para criar sua conta.
           </div>
-
-          {onDevConsoleClick && (
-            <div className="mt-3 pt-3 border-t border-slate-100 text-center">
-              <button
-                type="button"
-                onClick={onDevConsoleClick}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl border border-slate-300 transition-colors cursor-pointer"
-              >
-                <Terminal className="w-3.5 h-3.5 text-blue-600" />
-                <span>Painel do Desenvolvedor (Ver Erros & Logs)</span>
-              </button>
-            </div>
-          )}
 
         </div>
 
