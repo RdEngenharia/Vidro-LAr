@@ -160,9 +160,30 @@ export const syncEngine = new SyncEngine();
 // IndexedDB vazio e nunca "vê" os orçamentos criados em outro lugar — o sync antigo
 // só enviava dados locais PARA a nuvem, nunca buscava de volta. Chamado no login
 // (ver authContext.tsx) para trazer o histórico existente para o dispositivo atual.
+//
+// IMPORTANTE: tudo isso roda dentro de um limite de tempo rígido (timeout). Se o
+// Firestore não estiver configurado corretamente no projeto (ex: banco de dados
+// nunca criado no Firebase Console) ou a rede travar, essa função NUNCA pode
+// ficar pendurada para sempre — isso prenderia a tela de carregamento do app
+// indefinidamente para todo mundo, mesmo sem internet nenhuma envolvida.
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
+
 export async function pullTenantDataFromCloud(tenantId: string): Promise<{ pulled: number; error?: string }> {
   if (!firebaseDb) return { pulled: 0 };
 
+  return withTimeout(
+    pullTenantDataFromCloudInternal(tenantId),
+    8000,
+    { pulled: 0, error: 'Tempo esgotado ao buscar dados da nuvem (verifique se o Firestore está configurado no Firebase Console).' }
+  );
+}
+
+async function pullTenantDataFromCloudInternal(tenantId: string): Promise<{ pulled: number; error?: string }> {
   try {
     await ensureFirebaseAuth();
 
