@@ -79,13 +79,15 @@ export interface Quote {
   cashTotalAmount: number; // Valor à vista com desconto
   maxInstallmentsCard: number; // e.g. 12x
   
-  // Payment tracking (50% deposit & remaining)
+  // Payment tracking (Customizable deposit & remaining)
   depositPaid: boolean;
-  depositAmount: number; // Typically 50% of total
+  depositAmount: number; // Custom deposit/sinal amount (R$)
+  depositPercent?: number; // Custom deposit percentage (e.g. 50, 100, 30, 60, 0)
   depositDate?: string;
   
   remainingPaid: boolean;
-  remainingAmount: number; // Remaining 50%
+  remainingAmount: number; // Custom remaining amount (R$)
+  remainingPaymentNotes?: string; // Custom negotiation notes for remaining balance (e.g., "3x no cartão na conclusão")
   completionDate?: string;
   
   // Finish options (Cor do acabamento)

@@ -98,7 +98,7 @@ export const QuoteList: React.FC<QuoteListProps> = ({
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">
             <DollarSign className="w-3.5 h-3.5 text-amber-600" />
-            <span>50% Entrada Pago</span>
+            <span>Entrada Paga</span>
           </span>
         );
       case 'aguardando_material':
@@ -143,19 +143,19 @@ export const QuoteList: React.FC<QuoteListProps> = ({
         </div>
 
         <div className="bg-white p-4 rounded-2xl border border-amber-200 bg-amber-50/20 shadow-xs">
-          <p className="text-xs font-semibold text-amber-800 uppercase tracking-wider">Entradas Recebidas (50%)</p>
+          <p className="text-xs font-semibold text-amber-800 uppercase tracking-wider">Entradas Recebidas</p>
           <p className="text-2xl font-black font-mono text-amber-700 mt-1">
             {formatCurrency(totalDepositsCollected)}
           </p>
-          <p className="text-[11px] text-amber-600 mt-1">Valores congelados no caixa</p>
+          <p className="text-[11px] text-amber-600 mt-1">Sinais / Entradas dos pedidos</p>
         </div>
 
         <div className="bg-white p-4 rounded-2xl border border-blue-200 bg-blue-50/20 shadow-xs">
-          <p className="text-xs font-semibold text-blue-800 uppercase tracking-wider">A Receber Pós-Obra (50%)</p>
+          <p className="text-xs font-semibold text-blue-800 uppercase tracking-wider">A Receber Pós-Obra</p>
           <p className="text-2xl font-black font-mono text-blue-700 mt-1">
             {formatCurrency(totalRemainingPending)}
           </p>
-          <p className="text-[11px] text-blue-600 mt-1">Saldo restante aguardando instalação</p>
+          <p className="text-[11px] text-blue-600 mt-1">Saldos a prazo aguardando instalação</p>
         </div>
 
       </div>
@@ -257,7 +257,7 @@ export const QuoteList: React.FC<QuoteListProps> = ({
                   <th className="p-3.5 text-center w-[110px]">DATA</th>
                   <th className="p-3.5 text-center w-[160px]">STATUS</th>
                   <th className="p-3.5 text-right w-[120px]">TOTAL (R$)</th>
-                  <th className="p-3.5 text-right w-[120px]">ENTRADA (50%)</th>
+                  <th className="p-3.5 text-right w-[120px]">ENTRADA</th>
                   <th className="p-3.5 text-center w-[140px]">AÇÕES</th>
                 </tr>
               </thead>
@@ -301,13 +301,13 @@ export const QuoteList: React.FC<QuoteListProps> = ({
                       {formatCurrency(q.totalAmount)}
                     </td>
 
-                    {/* 50% Deposit Amount & indicator */}
+                    {/* Deposit Amount & percentage indicator */}
                     <td className="p-3.5 text-right font-mono">
                       <p className="font-bold text-amber-700">
-                        {formatCurrency(q.depositAmount || q.totalAmount / 2)}
+                        {formatCurrency(q.depositAmount !== undefined ? q.depositAmount : q.totalAmount / 2)}
                       </p>
-                      <p className="text-[10px] text-slate-400">
-                        {q.depositPaid ? '✓ Pago' : 'Pendente'}
+                      <p className="text-[10px] text-slate-500">
+                        {q.depositPercent !== undefined ? `${q.depositPercent}%` : ''} {q.depositPaid ? '✓ Pago' : 'Pendente'}
                       </p>
                     </td>
 

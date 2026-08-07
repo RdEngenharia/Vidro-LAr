@@ -44,6 +44,15 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({
   const [maxInstallmentsCard, setMaxInstallmentsCard] = useState<number>(initialQuote?.maxInstallmentsCard || 12);
   const [notes, setNotes] = useState(initialQuote?.notes || '');
 
+  // Payment Breakdown State (Customizable Entrada & Saldo A Prazo)
+  const [depositPercent, setDepositPercent] = useState<number>(initialQuote?.depositPercent ?? 50);
+  const [depositAmount, setDepositAmount] = useState<number>(initialQuote?.depositAmount ?? 0);
+  const [remainingAmount, setRemainingAmount] = useState<number>(initialQuote?.remainingAmount ?? 0);
+  const [remainingPaymentNotes, setRemainingPaymentNotes] = useState<string>(
+    initialQuote?.remainingPaymentNotes || 'Saldo restante negociado na entrega / conclusão da instalação'
+  );
+  const [isManualDepositAmount, setIsManualDepositAmount] = useState<boolean>(false);
+
   // Items State
   const [items, setItems] = useState<QuoteItem[]>(
     initialQuote?.items || [
@@ -182,7 +191,48 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({
     (totalAmount * (1 - cashDiscountPercent / 100)).toFixed(2)
   );
 
-  const deposit50Amount = parseFloat((totalAmount / 2).toFixed(2));
+  // Sync deposit and remaining amounts when total or deposit percentage changes
+  useEffect(() => {
+    if (!isManualDepositAmount) {
+      const calcDep = parseFloat(((totalAmount * depositPercent) / 100).toFixed(2));
+      setDepositAmount(calcDep);
+      setRemainingAmount(parseFloat(Math.max(0, totalAmount - calcDep).toFixed(2)));
+    } else {
+      setRemainingAmount(parseFloat(Math.max(0, totalAmount - depositAmount).toFixed(2)));
+    }
+  }, [totalAmount, depositPercent, isManualDepositAmount]);
+
+  const handleSelectDepositPercent = (pct: number) => {
+    setDepositPercent(pct);
+    setIsManualDepositAmount(false);
+    const calcDep = parseFloat(((totalAmount * pct) / 100).toFixed(2));
+    setDepositAmount(calcDep);
+    setRemainingAmount(parseFloat(Math.max(0, totalAmount - calcDep).toFixed(2)));
+    if (pct === 100) {
+      setRemainingPaymentNotes('100% Pago À Vista no pedido');
+    } else if (pct === 0) {
+      setRemainingPaymentNotes('100% A Prazo na entrega/conclusão da obra');
+    }
+  };
+
+  const handleDepositAmountChange = (val: number) => {
+    const newDep = Math.max(0, val);
+    setIsManualDepositAmount(true);
+    setDepositAmount(newDep);
+    setRemainingAmount(parseFloat(Math.max(0, totalAmount - newDep).toFixed(2)));
+    const pct = totalAmount > 0 ? parseFloat(((newDep / totalAmount) * 100).toFixed(1)) : 0;
+    setDepositPercent(pct);
+  };
+
+  const handleRemainingAmountChange = (val: number) => {
+    const newRem = Math.max(0, val);
+    setRemainingAmount(newRem);
+    const newDep = parseFloat(Math.max(0, totalAmount - newRem).toFixed(2));
+    setDepositAmount(newDep);
+    setIsManualDepositAmount(true);
+    const pct = totalAmount > 0 ? parseFloat(((newDep / totalAmount) * 100).toFixed(1)) : 0;
+    setDepositPercent(pct);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -216,10 +266,12 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({
       cashTotalAmount,
       maxInstallmentsCard,
       depositPaid: isDepositPaid,
-      depositAmount: deposit50Amount,
+      depositAmount: depositAmount,
+      depositPercent: depositPercent,
       depositDate: isDepositPaid ? (initialQuote?.depositDate || new Date().toISOString()) : undefined,
       remainingPaid: isRemainingPaid,
-      remainingAmount: deposit50Amount,
+      remainingAmount: remainingAmount,
+      remainingPaymentNotes: remainingPaymentNotes,
       completionDate: isRemainingPaid ? (initialQuote?.completionDate || new Date().toISOString()) : undefined,
       finishColor,
       finishColorOther,
@@ -732,22 +784,130 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({
             </p>
           </div>
 
-          {/* 50% Deposit Rule */}
-          <div className="bg-slate-800 p-4 rounded-xl border border-blue-900/50">
-            <p className="text-xs font-semibold text-blue-300 flex items-center gap-1">
-              <Info className="w-3.5 h-3.5" />
-              <span>Regra Vidraçaria (50% Entrada)</span>
-            </p>
-            <div className="mt-2 text-xs font-mono space-y-1">
-              <div className="flex justify-between text-slate-300">
-                <span>Entrada (50%):</span>
-                <span className="font-bold text-white">R$ {deposit50Amount.toFixed(2)}</span>
+          {/* Custom Entrada & Saldo A Prazo Section */}
+          <div className="bg-slate-800 p-4 rounded-xl border border-blue-500/30 md:col-span-3 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700 pb-3">
+              <div className="flex items-center gap-2">
+                <Info className="w-4 h-4 text-blue-400" />
+                <h4 className="font-bold text-xs sm:text-sm text-white uppercase tracking-wider">
+                  Condições de Entrada & Saldo A Prazo (Negociação)
+                </h4>
               </div>
-              <div className="flex justify-between text-slate-400">
-                <span>Saldo Obra (50%):</span>
-                <span className="font-bold text-amber-300">R$ {deposit50Amount.toFixed(2)}</span>
-              </div>
+              <span className="text-[11px] text-blue-300">
+                Ajuste a porcentagem ou os valores exatos negociados com este cliente
+              </span>
             </div>
+
+            {/* Quick Preset Buttons */}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-slate-400 font-semibold mr-1">Opções de Entrada:</span>
+              {[
+                { label: '100% À Vista', pct: 100 },
+                { label: '50% / 50%', pct: 50 },
+                { label: '60% / 40%', pct: 60 },
+                { label: '30% / 70%', pct: 30 },
+                { label: '0% (Sem Entrada)', pct: 0 },
+              ].map((btn) => (
+                <button
+                  key={btn.pct}
+                  type="button"
+                  onClick={() => handleSelectDepositPercent(btn.pct)}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer border ${
+                    !isManualDepositAmount && depositPercent === btn.pct
+                      ? 'bg-blue-600 text-white border-blue-400 shadow-xs'
+                      : 'bg-slate-900 text-slate-300 border-slate-700 hover:bg-slate-700 hover:text-white'
+                  }`}
+                >
+                  {btn.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Interactive Inputs Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 bg-slate-950/60 p-3.5 rounded-xl border border-slate-800">
+              
+              {/* % Entrada */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                  % Porcentagem Entrada
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.5"
+                    value={depositPercent}
+                    onChange={(e) => {
+                      const p = Number(e.target.value);
+                      setDepositPercent(p);
+                      setIsManualDepositAmount(false);
+                    }}
+                    className="w-full p-2 bg-slate-900 border border-slate-700 rounded-lg text-xs font-bold text-blue-300 font-mono pr-7 focus:border-blue-500 focus:outline-hidden"
+                  />
+                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">%</span>
+                </div>
+              </div>
+
+              {/* Valor Entrada R$ */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                  Valor da Entrada (R$)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={depositAmount}
+                  onChange={(e) => handleDepositAmountChange(Number(e.target.value))}
+                  className="w-full p-2 bg-slate-900 border border-emerald-500/50 rounded-lg text-xs font-black font-mono text-emerald-400 focus:border-emerald-400 focus:outline-hidden"
+                  title="Valor da entrada pago no pedido"
+                />
+              </div>
+
+              {/* Valor A Prazo R$ */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                  Saldo A Prazo (R$)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={remainingAmount}
+                  onChange={(e) => handleRemainingAmountChange(Number(e.target.value))}
+                  className="w-full p-2 bg-slate-900 border border-amber-500/50 rounded-lg text-xs font-black font-mono text-amber-300 focus:border-amber-400 focus:outline-hidden"
+                  title="Valor restante a prazo"
+                />
+              </div>
+
+              {/* Condições / Observação do Saldo */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                  Condição do Saldo A Prazo
+                </label>
+                <input
+                  type="text"
+                  value={remainingPaymentNotes}
+                  onChange={(e) => setRemainingPaymentNotes(e.target.value)}
+                  placeholder="Ex: 3x no cartão na entrega / Cheque 30 dias"
+                  className="w-full p-2 bg-slate-900 border border-slate-700 rounded-lg text-xs font-medium text-slate-200 focus:border-blue-500 focus:outline-hidden placeholder-slate-500"
+                />
+              </div>
+
+            </div>
+
+            {/* Summary sentence */}
+            <div className="text-xs text-slate-300 font-mono bg-slate-900/80 p-2.5 rounded-lg border border-slate-800 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <span className="text-slate-400">Condições do Pedido:</span>{' '}
+                <strong className="text-emerald-400">Entrada: R$ {depositAmount.toFixed(2)} ({depositPercent.toFixed(1)}%)</strong>
+                {' • '}
+                <strong className="text-amber-300">Saldo A Prazo: R$ {remainingAmount.toFixed(2)} ({Math.max(0, 100 - depositPercent).toFixed(1)}%)</strong>
+              </div>
+              <span className="text-[11px] text-blue-300 italic">{remainingPaymentNotes}</span>
+            </div>
+
           </div>
 
         </div>

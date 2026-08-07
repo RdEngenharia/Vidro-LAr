@@ -79,6 +79,17 @@ export const QuotePDFView: React.FC<QuotePDFViewProps> = ({
           )})`
         : `*Total Cartão:* ${formatCurrency(quote.totalAmount)}`;
 
+    const depositAmt = quote.depositAmount !== undefined ? quote.depositAmount : quote.totalAmount / 2;
+    const remainingAmt = quote.remainingAmount !== undefined ? quote.remainingAmount : quote.totalAmount - depositAmt;
+    const depositPct = quote.depositPercent !== undefined 
+      ? quote.depositPercent 
+      : (quote.totalAmount > 0 ? Math.round((depositAmt / quote.totalAmount) * 100) : 50);
+
+    const depositText = depositPct === 100
+      ? `• *Pagamento:* 100% À Vista (${formatCurrency(quote.totalAmount)})`
+      : `• *Entrada (${depositPct}% no pedido):* ${formatCurrency(depositAmt)}
+• *Saldo A Prazo (${Math.max(0, 100 - depositPct)}%):* ${formatCurrency(remainingAmt)} ${quote.remainingPaymentNotes ? `(${quote.remainingPaymentNotes})` : ''}`;
+
     const message = `*${compName.toUpperCase()}*
 *ORÇAMENTO / PEDIDO #${quote.codeNumber}*
 
@@ -90,7 +101,7 @@ ${itemsList}
 💰 *VALORES & CONDIÇÕES:*
 • ${installmentsText}
 • *À Vista (com desconto):* ${formatCurrency(quote.cashTotalAmount)}
-• *Entrada (50% no pedido):* ${formatCurrency(quote.totalAmount / 2)}
+${depositText}
 • *Acabamento:* ${quote.finishColor} ${quote.finishColorOther ? `(${quote.finishColorOther})` : ''}
 
 📅 *Validade da proposta:* ${quote.validUntilDays || 15} dias.
@@ -340,17 +351,38 @@ Ficamos à disposição para agendar sua instalação!`;
             </div>
           </div>
 
-          {/* 50% Deposit Financial Status Notice */}
+          {/* Custom Deposit & Remaining Financial Status Notice */}
           <div className="mt-2.5 p-1.5 border border-black text-[10px] font-bold flex justify-between items-center" style={{ backgroundColor: '#f8fafc', borderColor: '#000000' }}>
             <div>
               <span className="uppercase font-black" style={{ color: '#0f172a' }}>Condição de Pagamento Vidraçaria:</span>
               <span className="ml-1.5 font-normal" style={{ color: '#1e293b' }}>
-                50% de Entrada no pedido (congelamento de preços) + 50% na conclusão da instalação.
+                {(() => {
+                  const depAmt = quote.depositAmount !== undefined ? quote.depositAmount : quote.totalAmount / 2;
+                  const depPct = quote.depositPercent !== undefined 
+                    ? quote.depositPercent 
+                    : (quote.totalAmount > 0 ? Math.round((depAmt / quote.totalAmount) * 100) : 50);
+                  
+                  if (depPct >= 100) return '100% À vista no pedido para faturamento e produção imediata.';
+                  if (depPct <= 0) return `100% A prazo (${quote.remainingPaymentNotes || 'conforme combinado na instalação'}).`;
+                  return `Entrada de ${depPct.toFixed(0)}% no pedido + Saldo a prazo de ${Math.max(0, 100 - depPct).toFixed(0)}% ${quote.remainingPaymentNotes ? `(${quote.remainingPaymentNotes})` : 'na conclusão da instalação'}.`;
+                })()}
               </span>
             </div>
             <div className="text-right font-mono font-black whitespace-nowrap pl-2">
-              <div>Entrada 50%: {formatCurrency(quote.totalAmount / 2)}</div>
-              <div>Saldo 50%: {formatCurrency(quote.totalAmount / 2)}</div>
+              {(() => {
+                const depAmt = quote.depositAmount !== undefined ? quote.depositAmount : quote.totalAmount / 2;
+                const remAmt = quote.remainingAmount !== undefined ? quote.remainingAmount : quote.totalAmount - depAmt;
+                const depPct = quote.depositPercent !== undefined 
+                  ? quote.depositPercent 
+                  : (quote.totalAmount > 0 ? Math.round((depAmt / quote.totalAmount) * 100) : 50);
+
+                return (
+                  <>
+                    <div>Entrada ({depPct.toFixed(0)}%): {formatCurrency(depAmt)}</div>
+                    <div>Saldo A Prazo: {formatCurrency(remAmt)}</div>
+                  </>
+                );
+              })()}
             </div>
           </div>
 
