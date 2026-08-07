@@ -1,7 +1,12 @@
 /// <reference types="vite/client" />
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { getAuth, Auth } from 'firebase/auth';
-import { getFirestore, Firestore } from 'firebase/firestore';
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  Firestore,
+} from 'firebase/firestore';
 
 // Fallback configuration if env vars are not yet set
 const firebaseConfig = {
@@ -20,13 +25,30 @@ let db: Firestore | null = null;
 try {
   app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
   auth = getAuth(app);
-  // IMPORTANTE: aponta explicitamente para o banco de dados chamado "default" —
-  // se o banco do Firestore foi criado como um banco nomeado literalmente "default"
-  // (em vez do banco reservado especial que o SDK usa por padrão quando nenhum nome
-  // é informado), essa linha resolve o erro "Database '(default)' not found".
-  db = getFirestore(app, 'default');
+
+  // O Firestore é a ÚNICA fonte de dados do app (sem banco local próprio reinventado).
+  // Para funcionar offline mesmo assim, usamos o cache local PERSISTENTE nativo do
+  // próprio Firestore: ele guarda os dados em IndexedDB por baixo dos panos, enfileira
+  // escritas feitas offline automaticamente, e sincroniza sozinho assim que a conexão
+  // volta — sem precisarmos manter nossa própria fila de sincronização (que é onde os
+  // bugs de "não aparece em outro aparelho" viviam). `persistentMultipleTabManager`
+  // permite abrir o sistema em várias abas/dispositivos ao mesmo tempo sem conflito.
+  //
+  // IMPORTANTE: aponta explicitamente para o banco de dados chamado "default" — se o
+  // banco do Firestore foi criado como um banco nomeado literalmente "default" (em vez
+  // do banco reservado especial que o SDK usa por padrão quando nenhum nome é
+  // informado), isso resolve o erro "Database '(default)' not found".
+  db = initializeFirestore(
+    app,
+    {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+      }),
+    },
+    'default'
+  );
 } catch (error) {
-  console.warn("Firebase initialization warning (operating in local IndexedDB mode):", error);
+  console.warn("Firebase initialization warning:", error);
 }
 
 // Aguarda a sessão real do Firebase Authentication (e-mail/senha) estar pronta antes de

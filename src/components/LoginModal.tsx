@@ -69,7 +69,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen }) => {
           </div>
           <h2 className="text-xl font-black tracking-tight">Sistema Vidraçaria Pro</h2>
           <p className="text-xs text-slate-300 mt-1">
-            Plataforma SaaS de Orçamentos & Pedidos com Suporte Offline (IndexedDB + Firebase)
+            Plataforma SaaS de Orçamentos & Pedidos com Suporte Offline (Firebase)
           </p>
           <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-800 text-blue-300 text-[11px] font-semibold border border-slate-700">
             <ShieldCheck className="w-3.5 h-3.5" />
@@ -147,7 +147,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen }) => {
 
           <div className="mt-4 p-3 bg-slate-50 rounded-xl text-[11px] text-slate-500 text-center flex items-center justify-center gap-1.5">
             <WifiOff className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-            <span>Primeiro acesso exige internet. Depois disso, funciona offline via IndexedDB e sincroniza automaticamente quando houver conexão.</span>
+            <span>Primeiro acesso exige internet. Depois disso, funciona offline (o Firebase guarda tudo em cache local) e sincroniza automaticamente quando houver conexão.</span>
           </div>
 
           <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-700 text-center">

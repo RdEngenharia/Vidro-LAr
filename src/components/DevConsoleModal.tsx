@@ -31,7 +31,6 @@ import {
   logWarn
 } from '../lib/logger';
 import { getCustomers, getQuotes } from '../lib/db';
-import { syncEngine } from '../lib/sync';
 import { CompanySettings } from '../types';
 
 interface DevConsoleModalProps {
@@ -74,7 +73,6 @@ export const DevConsoleModal: React.FC<DevConsoleModalProps> = ({
   // Diagnostic status
   const [dbHealth, setDbHealth] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle');
   const [dbDetails, setDbDetails] = useState<string>('');
-  const [syncQueueCount, setSyncQueueCount] = useState<number>(0);
 
   // A senha do Modo Dev agora vive nas Configurações da Empresa (sincronizada via
   // Firestore), não mais em localStorage — assim ela é a mesma em qualquer aparelho
@@ -87,7 +85,6 @@ export const DevConsoleModal: React.FC<DevConsoleModalProps> = ({
   const loadLogs = () => {
     const all = getStoredLogs();
     setLogs(all);
-    setSyncQueueCount(syncEngine.getStatus().pendingCount);
   };
 
   useEffect(() => {
@@ -237,7 +234,7 @@ export const DevConsoleModal: React.FC<DevConsoleModalProps> = ({
 
   const handleTestDatabase = async () => {
     setDbHealth('testing');
-    setDbDetails('Testando leitura e gravação no IndexedDB local...');
+    setDbDetails('Testando leitura no Firestore (Firebase)...');
     try {
       const startTime = performance.now();
       const [custs, quotes] = await Promise.all([
@@ -247,15 +244,15 @@ export const DevConsoleModal: React.FC<DevConsoleModalProps> = ({
       const duration = (performance.now() - startTime).toFixed(1);
 
       setDbHealth('ok');
-      setDbDetails(`Base de Dados Saudável. (${custs.length} Clientes, ${quotes.length} Orçamentos lidos em ${duration}ms)`);
-      logInfo('DB_HEALTH_CHECK', 'Diagnóstico de base de dados finalizado com sucesso', {
+      setDbDetails(`Firestore respondendo normalmente. (${custs.length} Clientes, ${quotes.length} Orçamentos lidos em ${duration}ms)`);
+      logInfo('DB_HEALTH_CHECK', 'Diagnóstico de conexão com o Firestore finalizado com sucesso', {
         customersCount: custs.length,
         quotesCount: quotes.length,
         durationMs: duration,
       });
     } catch (err: any) {
       setDbHealth('error');
-      setDbDetails(`Falha no Diagnóstico da Base: ${err?.message || err}`);
+      setDbDetails(`Falha ao conectar no Firestore: ${err?.message || err}`);
       logError('DB_HEALTH_CHECK_FAILED', err);
     }
   };
@@ -509,7 +506,7 @@ export const DevConsoleModal: React.FC<DevConsoleModalProps> = ({
               className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 inline-flex items-center gap-1.5 font-medium transition-colors cursor-pointer disabled:opacity-50"
             >
               <Database className="w-3.5 h-3.5 text-blue-400" />
-              <span>{dbHealth === 'testing' ? 'Testando...' : 'Diagnosticar Banco Local'}</span>
+              <span>{dbHealth === 'testing' ? 'Testando...' : 'Diagnosticar Conexão Firestore'}</span>
             </button>
 
             <button

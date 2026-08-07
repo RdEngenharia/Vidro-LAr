@@ -17,7 +17,6 @@ import {
   deleteQuote,
   getCompanySettings,
 } from './lib/db';
-import { pullTenantDataFromCloud } from './lib/sync';
 
 import { Navbar } from './components/Navbar';
 import { Sidebar, TabType } from './components/Sidebar';
@@ -60,7 +59,7 @@ function MainApp() {
     }
   }, [tenantId, user]);
 
-  // Load IndexedDB Data for Tenant
+  // Carrega os dados do tenant DIRETO do Firestore (única fonte de verdade).
   const loadTenantData = async () => {
     if (!tenantId) return;
     try {
@@ -76,7 +75,7 @@ function MainApp() {
       setProducts(prodData);
       setQuotes(quoteData);
     } catch (e) {
-      console.error('Error loading tenant data from IndexedDB', e);
+      console.error('Error loading tenant data from Firestore', e);
     }
   };
 
@@ -86,17 +85,16 @@ function MainApp() {
     }
   }, [user]);
 
-  // Puxa manualmente os dados mais recentes da nuvem (Firestore) para este dispositivo
-  // e recarrega a tela. Útil quando o mesmo usuário criou orçamentos em outro
-  // navegador/aparelho e quer vê-los aqui também.
+  // Busca os dados mais recentes do Firestore e atualiza a tela. Útil quando o
+  // mesmo usuário criou/editou orçamentos em outro navegador/aparelho e quer
+  // vê-los aqui também sem precisar sair e entrar de novo.
   const handleCloudSync = async () => {
     if (!tenantId || isCloudSyncing) return;
     setIsCloudSyncing(true);
     try {
-      await pullTenantDataFromCloud(tenantId);
       await loadTenantData();
     } catch (e) {
-      console.error('Error pulling data from cloud', e);
+      console.error('Error refreshing data from Firestore', e);
     } finally {
       setIsCloudSyncing(false);
     }

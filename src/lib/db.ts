@@ -1,94 +1,155 @@
-import { openDB, DBSchema, IDBPDatabase } from 'idb';
-import { Customer, Category, ProductPreset, Quote, CompanySettings, SyncQueueItem } from '../types';
+// ---------------------------------------------------------------------------
+// Camada de dados do app — Firestore como ÚNICA fonte de verdade.
+// ---------------------------------------------------------------------------
+// Antes, este arquivo mantinha um banco IndexedDB próprio + uma fila de
+// sincronização manual para enviar/buscar dados do Firestore. Essa duplicação
+// era a origem de vários bugs (orçamentos que não apareciam em outro
+// dispositivo, exclusões que "voltavam", etc.).
+//
+// Agora, toda leitura e escrita vai direto para o Firestore. O suporte a uso
+// offline continua existindo, mas é feito pelo cache local PERSISTENTE nativo
+// do próprio SDK do Firestore (configurado em firebase.ts com
+// `persistentLocalCache`) — ele guarda os dados em IndexedDB por baixo dos
+// panos, serve leituras do cache quando offline, enfileira escritas feitas
+// offline automaticamente, e sincroniza sozinho assim que a conexão volta.
+// Não precisamos mais reimplementar nada disso manualmente.
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  setDoc,
+  deleteDoc,
+} from 'firebase/firestore';
+import { db as firebaseDb, ensureFirebaseAuth } from './firebase';
+import { Customer, Category, ProductPreset, Quote, CompanySettings } from '../types';
 
-interface VidracariaDBSchema extends DBSchema {
-  customers: {
-    key: string;
-    value: Customer;
-    indexes: { 'by-tenant': string };
-  };
-  categories: {
-    key: string;
-    value: Category;
-    indexes: { 'by-tenant': string };
-  };
-  products: {
-    key: string;
-    value: ProductPreset;
-    indexes: { 'by-tenant': string };
-  };
-  quotes: {
-    key: string;
-    value: Quote;
-    indexes: { 'by-tenant': string; 'by-status': string };
-  };
-  settings: {
-    key: string;
-    value: CompanySettings;
-  };
-  syncQueue: {
-    key: string;
-    value: SyncQueueItem;
-    indexes: { 'by-tenant': string };
-  };
-}
-
-const DB_NAME = 'VidracariaProDB';
-const DB_VERSION = 1;
-
-let dbPromise: Promise<IDBPDatabase<VidracariaDBSchema>> | null = null;
-
-export function getDB() {
-  if (!dbPromise) {
-    dbPromise = openDB<VidracariaDBSchema>(DB_NAME, DB_VERSION, {
-      upgrade(db) {
-        // Customers store
-        if (!db.objectStoreNames.contains('customers')) {
-          const customerStore = db.createObjectStore('customers', { keyPath: 'id' });
-          customerStore.createIndex('by-tenant', 'tenantId');
-        }
-
-        // Categories store
-        if (!db.objectStoreNames.contains('categories')) {
-          const catStore = db.createObjectStore('categories', { keyPath: 'id' });
-          catStore.createIndex('by-tenant', 'tenantId');
-        }
-
-        // Products store
-        if (!db.objectStoreNames.contains('products')) {
-          const prodStore = db.createObjectStore('products', { keyPath: 'id' });
-          prodStore.createIndex('by-tenant', 'tenantId');
-        }
-
-        // Quotes store
-        if (!db.objectStoreNames.contains('quotes')) {
-          const quoteStore = db.createObjectStore('quotes', { keyPath: 'id' });
-          quoteStore.createIndex('by-tenant', 'tenantId');
-          quoteStore.createIndex('by-status', 'status');
-        }
-
-        // Settings store
-        if (!db.objectStoreNames.contains('settings')) {
-          db.createObjectStore('settings', { keyPath: 'tenantId' });
-        }
-
-        // Sync Queue store
-        if (!db.objectStoreNames.contains('syncQueue')) {
-          const syncStore = db.createObjectStore('syncQueue', { keyPath: 'id' });
-          syncStore.createIndex('by-tenant', 'tenantId');
-        }
-      },
-    });
+function requireDb() {
+  if (!firebaseDb) {
+    throw new Error('Firestore não inicializado. Verifique a configuração do Firebase (.env).');
   }
-  return dbPromise;
+  return firebaseDb;
 }
 
-// Default initial data for a tenant
-export async function initializeTenantData(tenantId: string, companyName: string = 'Minha Vidraçaria', email: string = '') {
-  const db = await getDB();
-  
-  // Check if categories already exist
-  const existingCats = await db.getAllFromIndex('categories', 'by-tenant', tenantId);
+function tenantCollection(tenantId: string, name: string) {
+  return collection(requireDb(), 'tenants', tenantId, name);
+}
+
+function tenantDoc(tenantId: string, name: string, id: string) {
+  return doc(requireDb(), 'tenants', tenantId, name, id);
+}
+
+// ---------------------------------------------------------------------------
+// Clientes
+// ---------------------------------------------------------------------------
+export async function getCustomers(tenantId: string): Promise<Customer[]> {
+  await ensureFirebaseAuth();
+  const snap = await getDocs(tenantCollection(tenantId, 'customers'));
+  return snap.docs.map((d) => d.data() as Customer);
+}
+
+export async function saveCustomer(customer: Customer): Promise<void> {
+  await ensureFirebaseAuth();
+  await setDoc(tenantDoc(customer.tenantId, 'customers', customer.id), customer, { merge: true });
+}
+
+export async function deleteCustomer(id: string, tenantId: string): Promise<void> {
+  await ensureFirebaseAuth();
+  await deleteDoc(tenantDoc(tenantId, 'customers', id));
+}
+
+// ---------------------------------------------------------------------------
+// Categorias
+// ---------------------------------------------------------------------------
+export async function getCategories(tenantId: string): Promise<Category[]> {
+  await ensureFirebaseAuth();
+  const snap = await getDocs(tenantCollection(tenantId, 'categories'));
+  return snap.docs.map((d) => d.data() as Category);
+}
+
+export async function saveCategory(category: Category): Promise<void> {
+  await ensureFirebaseAuth();
+  await setDoc(tenantDoc(category.tenantId, 'categories', category.id), category, { merge: true });
+}
+
+export async function deleteCategory(id: string, tenantId: string): Promise<void> {
+  await ensureFirebaseAuth();
+  await deleteDoc(tenantDoc(tenantId, 'categories', id));
+}
+
+// ---------------------------------------------------------------------------
+// Produtos
+// ---------------------------------------------------------------------------
+export async function getProducts(tenantId: string): Promise<ProductPreset[]> {
+  await ensureFirebaseAuth();
+  const snap = await getDocs(tenantCollection(tenantId, 'products'));
+  return snap.docs.map((d) => d.data() as ProductPreset);
+}
+
+export async function saveProduct(product: ProductPreset): Promise<void> {
+  await ensureFirebaseAuth();
+  await setDoc(tenantDoc(product.tenantId, 'products', product.id), product, { merge: true });
+}
+
+export async function deleteProduct(id: string, tenantId: string): Promise<void> {
+  await ensureFirebaseAuth();
+  await deleteDoc(tenantDoc(tenantId, 'products', id));
+}
+
+// ---------------------------------------------------------------------------
+// Orçamentos
+// ---------------------------------------------------------------------------
+export async function getQuotes(tenantId: string): Promise<Quote[]> {
+  await ensureFirebaseAuth();
+  const snap = await getDocs(tenantCollection(tenantId, 'quotes'));
+  const quotes = snap.docs.map((d) => d.data() as Quote);
+  return quotes.sort((a, b) => (b.codeNumber || 0) - (a.codeNumber || 0));
+}
+
+export async function getNextQuoteNumber(tenantId: string): Promise<number> {
+  const quotes = await getQuotes(tenantId);
+  if (quotes.length === 0) return 1001;
+  const maxNum = Math.max(...quotes.map((q) => q.codeNumber || 1000));
+  return maxNum + 1;
+}
+
+export async function saveQuote(quote: Quote): Promise<void> {
+  await ensureFirebaseAuth();
+  await setDoc(tenantDoc(quote.tenantId, 'quotes', quote.id), quote, { merge: true });
+}
+
+export async function deleteQuote(id: string, tenantId: string): Promise<void> {
+  await ensureFirebaseAuth();
+  await deleteDoc(tenantDoc(tenantId, 'quotes', id));
+}
+
+// ---------------------------------------------------------------------------
+// Configurações da Empresa (documento único por tenant)
+// ---------------------------------------------------------------------------
+export async function getCompanySettings(tenantId: string): Promise<CompanySettings | undefined> {
+  await ensureFirebaseAuth();
+  const snap = await getDoc(tenantDoc(tenantId, 'settings', tenantId));
+  return snap.exists() ? (snap.data() as CompanySettings) : undefined;
+}
+
+export async function saveCompanySettings(settings: CompanySettings): Promise<void> {
+  await ensureFirebaseAuth();
+  await setDoc(tenantDoc(settings.tenantId, 'settings', settings.tenantId), settings, { merge: true });
+}
+
+// ---------------------------------------------------------------------------
+// Inicialização de um novo tenant (primeira vez que a conta é usada)
+// ---------------------------------------------------------------------------
+export async function initializeTenantData(
+  tenantId: string,
+  companyName: string = 'Minha Vidraçaria',
+  email: string = ''
+) {
+  await ensureFirebaseAuth();
+
+  // Categorias/produtos padrão só são semeados se ainda não existir nada — evita
+  // sobrescrever dados reais de um tenant que já tem categorias próprias cadastradas.
+  const existingCats = await getCategories(tenantId);
   if (existingCats.length === 0) {
     const defaultCategories: Category[] = [
       {
@@ -96,7 +157,7 @@ export async function initializeTenantData(tenantId: string, companyName: string
         tenantId,
         name: 'Box',
         description: 'Box de Banheiro padrão ou sob medida com vidro temperado 8mm',
-        defaultPricePerM2: 280.00,
+        defaultPricePerM2: 280.0,
         pricingType: 'm2',
         defaultThicknessMm: 8,
         updatedAt: new Date().toISOString(),
@@ -106,7 +167,7 @@ export async function initializeTenantData(tenantId: string, companyName: string
         tenantId,
         name: 'Janelas Padrão',
         description: 'Janelas em vidro temperado de medidas comerciais padrão',
-        defaultPricePerM2: 240.00,
+        defaultPricePerM2: 240.0,
         pricingType: 'unit',
         defaultThicknessMm: 8,
         updatedAt: new Date().toISOString(),
@@ -116,7 +177,7 @@ export async function initializeTenantData(tenantId: string, companyName: string
         tenantId,
         name: 'Sob Medida',
         description: 'Espelhos, tampos, sacadas e vidros sob medida especial',
-        defaultPricePerM2: 320.00,
+        defaultPricePerM2: 320.0,
         pricingType: 'm2',
         defaultThicknessMm: 6,
         updatedAt: new Date().toISOString(),
@@ -124,10 +185,9 @@ export async function initializeTenantData(tenantId: string, companyName: string
     ];
 
     for (const cat of defaultCategories) {
-      await db.put('categories', cat);
+      await saveCategory(cat);
     }
 
-    // Standard Preset Products
     const defaultProducts: ProductPreset[] = [
       {
         id: `prod_1_${tenantId}`,
@@ -138,7 +198,7 @@ export async function initializeTenantData(tenantId: string, companyName: string
         defaultWidthMm: 1200,
         defaultThicknessMm: 8,
         defaultColor: 'Incolor',
-        defaultUnitPrice: 650.00,
+        defaultUnitPrice: 650.0,
         unit: 'un',
         updatedAt: new Date().toISOString(),
       },
@@ -151,7 +211,7 @@ export async function initializeTenantData(tenantId: string, companyName: string
         defaultWidthMm: 1200,
         defaultThicknessMm: 8,
         defaultColor: 'Incolor',
-        defaultUnitPrice: 580.00,
+        defaultUnitPrice: 580.0,
         unit: 'un',
         updatedAt: new Date().toISOString(),
       },
@@ -164,7 +224,7 @@ export async function initializeTenantData(tenantId: string, companyName: string
         defaultWidthMm: 1070,
         defaultThicknessMm: 4,
         defaultColor: 'Prata',
-        defaultUnitPrice: 510.00,
+        defaultUnitPrice: 510.0,
         unit: 'm2',
         updatedAt: new Date().toISOString(),
       },
@@ -177,19 +237,18 @@ export async function initializeTenantData(tenantId: string, companyName: string
         defaultWidthMm: 1000,
         defaultThicknessMm: 8,
         defaultColor: 'Incolor',
-        defaultUnitPrice: 320.00,
+        defaultUnitPrice: 320.0,
         unit: 'm2',
         updatedAt: new Date().toISOString(),
       },
     ];
 
     for (const prod of defaultProducts) {
-      await db.put('products', prod);
+      await saveProduct(prod);
     }
   }
 
-  // Check Settings
-  const existingSettings = await db.get('settings', tenantId);
+  const existingSettings = await getCompanySettings(tenantId);
   if (!existingSettings) {
     const defaultSettings: CompanySettings = {
       tenantId,
@@ -204,193 +263,6 @@ export async function initializeTenantData(tenantId: string, companyName: string
       defaultValidDays: 15,
       termsText: 'Proposta válida por 15 dias, ou até reajuste anunciado pelas tempêras.',
     };
-    await db.put('settings', defaultSettings);
+    await saveCompanySettings(defaultSettings);
   }
-}
-
-// Customers API
-export async function getCustomers(tenantId: string): Promise<Customer[]> {
-  const db = await getDB();
-  return db.getAllFromIndex('customers', 'by-tenant', tenantId);
-}
-
-export async function saveCustomer(customer: Customer): Promise<void> {
-  const db = await getDB();
-  await db.put('customers', customer);
-  await queueSync(customer.tenantId, 'customers', 'UPDATE', customer);
-}
-
-export async function deleteCustomer(id: string, tenantId: string): Promise<void> {
-  const db = await getDB();
-  await db.delete('customers', id);
-  await queueSync(tenantId, 'customers', 'DELETE', { id });
-}
-
-// Categories API
-export async function getCategories(tenantId: string): Promise<Category[]> {
-  const db = await getDB();
-  return db.getAllFromIndex('categories', 'by-tenant', tenantId);
-}
-
-export async function saveCategory(category: Category): Promise<void> {
-  const db = await getDB();
-  await db.put('categories', category);
-  await queueSync(category.tenantId, 'categories', 'UPDATE', category);
-}
-
-export async function deleteCategory(id: string, tenantId: string): Promise<void> {
-  const db = await getDB();
-  await db.delete('categories', id);
-  await queueSync(tenantId, 'categories', 'DELETE', { id });
-}
-
-// Products API
-export async function getProducts(tenantId: string): Promise<ProductPreset[]> {
-  const db = await getDB();
-  return db.getAllFromIndex('products', 'by-tenant', tenantId);
-}
-
-export async function saveProduct(product: ProductPreset): Promise<void> {
-  const db = await getDB();
-  await db.put('products', product);
-  await queueSync(product.tenantId, 'products', 'UPDATE', product);
-}
-
-export async function deleteProduct(id: string, tenantId: string): Promise<void> {
-  const db = await getDB();
-  await db.delete('products', id);
-  await queueSync(tenantId, 'products', 'DELETE', { id });
-}
-
-// Quotes API
-export async function getQuotes(tenantId: string): Promise<Quote[]> {
-  const db = await getDB();
-  const quotes = await db.getAllFromIndex('quotes', 'by-tenant', tenantId);
-  return quotes.sort((a, b) => b.codeNumber - a.codeNumber);
-}
-
-export async function getNextQuoteNumber(tenantId: string): Promise<number> {
-  const quotes = await getQuotes(tenantId);
-  if (quotes.length === 0) return 1001;
-  const maxNum = Math.max(...quotes.map((q) => q.codeNumber || 1000));
-  return maxNum + 1;
-}
-
-export async function saveQuote(quote: Quote): Promise<void> {
-  const db = await getDB();
-  await db.put('quotes', quote);
-  await queueSync(quote.tenantId, 'quotes', 'UPDATE', quote);
-}
-
-export async function deleteQuote(id: string, tenantId: string): Promise<void> {
-  const db = await getDB();
-  await db.delete('quotes', id);
-  await queueSync(tenantId, 'quotes', 'DELETE', { id });
-}
-
-// Settings API
-export async function getCompanySettings(tenantId: string): Promise<CompanySettings | undefined> {
-  const db = await getDB();
-  return db.get('settings', tenantId);
-}
-
-export async function saveCompanySettings(settings: CompanySettings): Promise<void> {
-  const db = await getDB();
-  await db.put('settings', settings);
-  await queueSync(settings.tenantId, 'settings', 'UPDATE', settings);
-}
-
-// Sync Queue API
-export async function queueSync(
-  tenantId: string,
-  collection: SyncQueueItem['collection'],
-  action: SyncQueueItem['action'],
-  data: any
-) {
-  const db = await getDB();
-  const syncItem: SyncQueueItem = {
-    id: `sync_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-    tenantId,
-    collection,
-    action,
-    data,
-    timestamp: Date.now(),
-  };
-  await db.put('syncQueue', syncItem);
-
-  // Avisa o motor de sincronização (sync.ts) que há um item novo pendente, para que
-  // ele tente enviar IMEDIATAMENTE (se estiver online) em vez de esperar a próxima
-  // mudança de status de conexão (que podia nunca acontecer numa sessão sempre online).
-  // Usa evento do window (mesmo padrão do logger.ts) para não criar dependência
-  // circular entre db.ts e sync.ts.
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('vidracaria_sync_queued'));
-  }
-}
-
-export async function getSyncQueue(tenantId: string): Promise<SyncQueueItem[]> {
-  const db = await getDB();
-  return db.getAllFromIndex('syncQueue', 'by-tenant', tenantId);
-}
-
-export async function clearSyncQueueItem(id: string): Promise<void> {
-  const db = await getDB();
-  await db.delete('syncQueue', id);
-}
-
-// ---------------------------------------------------------------------------
-// Hidratação a partir da nuvem (Firestore -> IndexedDB local)
-// ---------------------------------------------------------------------------
-// As funções abaixo gravam localmente SEM reenfileirar sincronização (evita loop
-// infinito de puxar da nuvem e imediatamente reenviar de volta a mesma informação).
-// Usadas exclusivamente pelo pullTenantDataFromCloud em sync.ts, chamado no login
-// para trazer os dados de outros dispositivos/navegadores para o dispositivo atual.
-export async function putCustomerLocal(customer: Customer): Promise<void> {
-  const db = await getDB();
-  await db.put('customers', customer);
-}
-
-export async function putCategoryLocal(category: Category): Promise<void> {
-  const db = await getDB();
-  await db.put('categories', category);
-}
-
-export async function putProductLocal(product: ProductPreset): Promise<void> {
-  const db = await getDB();
-  await db.put('products', product);
-}
-
-export async function putQuoteLocal(quote: Quote): Promise<void> {
-  const db = await getDB();
-  await db.put('quotes', quote);
-}
-
-export async function putCompanySettingsLocal(settings: CompanySettings): Promise<void> {
-  const db = await getDB();
-  await db.put('settings', settings);
-}
-
-// Remoções locais "silenciosas" (sem reenfileirar sincronização) — usadas pela
-// reconciliação de exclusões em pullTenantDataFromCloud (sync.ts): quando um
-// registro foi apagado em outro dispositivo, ele simplesmente não aparece mais
-// nos dados vindos do Firestore. Sem isso, um item apagado em um aparelho nunca
-// desaparecia dos outros.
-export async function deleteCustomerLocal(id: string): Promise<void> {
-  const db = await getDB();
-  await db.delete('customers', id);
-}
-
-export async function deleteCategoryLocal(id: string): Promise<void> {
-  const db = await getDB();
-  await db.delete('categories', id);
-}
-
-export async function deleteProductLocal(id: string): Promise<void> {
-  const db = await getDB();
-  await db.delete('products', id);
-}
-
-export async function deleteQuoteLocal(id: string): Promise<void> {
-  const db = await getDB();
-  await db.delete('quotes', id);
 }

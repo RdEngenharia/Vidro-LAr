@@ -16,7 +16,8 @@ interface ErrorBoundaryState {
 // (ex: erro de DOM do html2canvas, chave duplicada em lista, etc.), o React por padrão
 // desmonta a árvore inteira e a tela fica em branco. Este boundary captura o erro,
 // registra no log interno (visível no Painel do Desenvolvedor) e mostra uma tela de
-// recuperação em vez de branco total — sem perder os dados salvos no IndexedDB.
+// recuperação em vez de branco total — sem perder os dados (o Firestore guarda
+// tudo em cache local automaticamente, mesmo offline).
 export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: ErrorBoundaryProps) {
     super(props);

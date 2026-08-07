@@ -155,12 +155,3 @@ export interface UserProfile {
   companyName: string;
   isOfflineMode?: boolean;
 }
-
-export interface SyncQueueItem {
-  id: string;
-  tenantId: string;
-  collection: 'customers' | 'categories' | 'products' | 'quotes' | 'settings';
-  action: 'CREATE' | 'UPDATE' | 'DELETE';
-  data: any;
-  timestamp: number;
-}

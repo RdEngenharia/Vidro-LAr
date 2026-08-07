@@ -13,7 +13,6 @@ import {
 } from 'firebase/auth';
 import { UserProfile, CompanySettings } from '../types';
 import { initializeTenantData, getCompanySettings, saveCompanySettings } from './db';
-import { syncEngine, pullTenantDataFromCloud } from './sync';
 import { auth as firebaseAuth } from './firebase';
 import { logError } from './logger';
 
@@ -77,8 +76,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Fonte da verdade da sessão: Firebase Authentication (e-mail/senha real).
   // O UID do Firebase vira o `tenantId` — é ele que garante, nas regras do Firestore
-  // (allow read, write: if request.auth.uid == tenantId) e no particionamento do
-  // IndexedDB local, que cada vidraçaria só enxerga seus próprios dados.
+  // (allow read, write: if request.auth.uid == tenantId), que cada vidraçaria só
+  // enxerga seus próprios dados. Os dados em si (clientes, orçamentos, etc.) moram
+  // só no Firestore — não existe mais um banco local separado para "puxar".
   useEffect(() => {
     if (!firebaseAuth) {
       console.warn('Firebase não inicializado — verifique o arquivo .env');
@@ -106,15 +106,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loadTenant = async (firebaseUser: FirebaseUser, fallbackCompanyName?: string) => {
     const tenantId = firebaseUser.uid;
 
-    syncEngine.setTenantId(tenantId);
-
-    // Traz os dados já existentes na nuvem para ESTE dispositivo/navegador antes de
-    // decidir se precisa semear dados padrão — sem isso, um navegador novo (ou aba
-    // anônima) nunca veria os orçamentos criados em outro lugar com a mesma conta.
-    await pullTenantDataFromCloud(tenantId);
-
-    // Garante dados iniciais (categorias/produtos/config padrão) apenas se, mesmo após
-    // tentar puxar da nuvem, ainda não houver nada local para este tenant.
+    // Garante dados iniciais (categorias/produtos/config padrão) apenas se este
+    // tenant ainda não tiver nada no Firestore (primeiro acesso da conta).
     await initializeTenantData(tenantId, fallbackCompanyName || firebaseUser.displayName || 'Minha Vidraçaria', firebaseUser.email || '');
 
     const companySettings = await getCompanySettings(tenantId);
