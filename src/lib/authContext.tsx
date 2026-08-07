@@ -13,7 +13,7 @@ import {
 } from 'firebase/auth';
 import { UserProfile, CompanySettings } from '../types';
 import { initializeTenantData, getCompanySettings, saveCompanySettings } from './db';
-import { syncEngine } from './sync';
+import { syncEngine, pullTenantDataFromCloud } from './sync';
 import { auth as firebaseAuth } from './firebase';
 import { logError } from './logger';
 
@@ -108,7 +108,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     syncEngine.setTenantId(tenantId);
 
-    // Garante dados iniciais (categorias/produtos/config padrão) na primeira vez deste tenant
+    // Traz os dados já existentes na nuvem para ESTE dispositivo/navegador antes de
+    // decidir se precisa semear dados padrão — sem isso, um navegador novo (ou aba
+    // anônima) nunca veria os orçamentos criados em outro lugar com a mesma conta.
+    await pullTenantDataFromCloud(tenantId);
+
+    // Garante dados iniciais (categorias/produtos/config padrão) apenas se, mesmo após
+    // tentar puxar da nuvem, ainda não houver nada local para este tenant.
     await initializeTenantData(tenantId, fallbackCompanyName || firebaseUser.displayName || 'Minha Vidraçaria', firebaseUser.email || '');
 
     const companySettings = await getCompanySettings(tenantId);

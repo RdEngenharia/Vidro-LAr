@@ -1,6 +1,6 @@
-import { getSyncQueue, clearSyncQueueItem } from './db';
+import { getSyncQueue, clearSyncQueueItem, putCustomerLocal, putCategoryLocal, putProductLocal, putQuoteLocal, putCompanySettingsLocal } from './db';
 import { db as firebaseDb, ensureFirebaseAuth } from './firebase';
-import { doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { doc, setDoc, deleteDoc, collection, getDocs } from 'firebase/firestore';
 
 export interface SyncStatus {
   isOnline: boolean;
@@ -152,3 +152,41 @@ class SyncEngine {
 }
 
 export const syncEngine = new SyncEngine();
+
+// ---------------------------------------------------------------------------
+// Puxa os dados do tenant do Firestore (nuvem) para o IndexedDB local.
+// ---------------------------------------------------------------------------
+// Necessário porque, sem isso, cada navegador/dispositivo/aba anônima começa com o
+// IndexedDB vazio e nunca "vê" os orçamentos criados em outro lugar — o sync antigo
+// só enviava dados locais PARA a nuvem, nunca buscava de volta. Chamado no login
+// (ver authContext.tsx) para trazer o histórico existente para o dispositivo atual.
+export async function pullTenantDataFromCloud(tenantId: string): Promise<{ pulled: number; error?: string }> {
+  if (!firebaseDb) return { pulled: 0 };
+
+  try {
+    await ensureFirebaseAuth();
+
+    let pulled = 0;
+
+    const collections: Array<{ name: string; put: (data: any) => Promise<void> }> = [
+      { name: 'customers', put: putCustomerLocal },
+      { name: 'categories', put: putCategoryLocal },
+      { name: 'products', put: putProductLocal },
+      { name: 'quotes', put: putQuoteLocal },
+      { name: 'settings', put: putCompanySettingsLocal },
+    ];
+
+    for (const c of collections) {
+      const snap = await getDocs(collection(firebaseDb, 'tenants', tenantId, c.name));
+      for (const docSnap of snap.docs) {
+        await c.put(docSnap.data());
+        pulled++;
+      }
+    }
+
+    return { pulled };
+  } catch (err: any) {
+    console.warn('Falha ao puxar dados do Firestore para este dispositivo:', err?.message);
+    return { pulled: 0, error: err?.message };
+  }
+}

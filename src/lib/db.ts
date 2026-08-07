@@ -328,3 +328,35 @@ export async function clearSyncQueueItem(id: string): Promise<void> {
   const db = await getDB();
   await db.delete('syncQueue', id);
 }
+
+// ---------------------------------------------------------------------------
+// Hidratação a partir da nuvem (Firestore -> IndexedDB local)
+// ---------------------------------------------------------------------------
+// As funções abaixo gravam localmente SEM reenfileirar sincronização (evita loop
+// infinito de puxar da nuvem e imediatamente reenviar de volta a mesma informação).
+// Usadas exclusivamente pelo pullTenantDataFromCloud em sync.ts, chamado no login
+// para trazer os dados de outros dispositivos/navegadores para o dispositivo atual.
+export async function putCustomerLocal(customer: Customer): Promise<void> {
+  const db = await getDB();
+  await db.put('customers', customer);
+}
+
+export async function putCategoryLocal(category: Category): Promise<void> {
+  const db = await getDB();
+  await db.put('categories', category);
+}
+
+export async function putProductLocal(product: ProductPreset): Promise<void> {
+  const db = await getDB();
+  await db.put('products', product);
+}
+
+export async function putQuoteLocal(quote: Quote): Promise<void> {
+  const db = await getDB();
+  await db.put('quotes', quote);
+}
+
+export async function putCompanySettingsLocal(settings: CompanySettings): Promise<void> {
+  const db = await getDB();
+  await db.put('settings', settings);
+}

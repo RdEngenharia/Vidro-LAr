@@ -17,6 +17,7 @@ import {
   deleteQuote,
   getCompanySettings,
 } from './lib/db';
+import { pullTenantDataFromCloud } from './lib/sync';
 
 import { Navbar } from './components/Navbar';
 import { Sidebar, TabType } from './components/Sidebar';
@@ -50,6 +51,7 @@ function MainApp() {
   // Modals
   const [isDeployGuideOpen, setIsDeployGuideOpen] = useState(false);
   const [isDevConsoleOpen, setIsDevConsoleOpen] = useState(false);
+  const [isCloudSyncing, setIsCloudSyncing] = useState(false);
 
   // Update Logger context whenever user/tenant changes
   useEffect(() => {
@@ -83,6 +85,22 @@ function MainApp() {
       loadTenantData();
     }
   }, [user]);
+
+  // Puxa manualmente os dados mais recentes da nuvem (Firestore) para este dispositivo
+  // e recarrega a tela. Útil quando o mesmo usuário criou orçamentos em outro
+  // navegador/aparelho e quer vê-los aqui também.
+  const handleCloudSync = async () => {
+    if (!tenantId || isCloudSyncing) return;
+    setIsCloudSyncing(true);
+    try {
+      await pullTenantDataFromCloud(tenantId);
+      await loadTenantData();
+    } catch (e) {
+      console.error('Error pulling data from cloud', e);
+    } finally {
+      setIsCloudSyncing(false);
+    }
+  };
 
   // Handlers for Quotes
   const handleNewQuoteClick = () => {
@@ -209,6 +227,8 @@ function MainApp() {
             onNewQuoteClick={handleNewQuoteClick}
             onDeployGuideClick={() => setIsDeployGuideOpen(true)}
             onDevConsoleClick={() => setIsDevConsoleOpen(true)}
+            onCloudSyncClick={handleCloudSync}
+            isCloudSyncing={isCloudSyncing}
             searchTerm={searchTerm}
             onSearchChange={setSearchTerm}
           />

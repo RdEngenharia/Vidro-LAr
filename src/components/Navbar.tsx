@@ -2,12 +2,14 @@ import React, { useState } from 'react';
 import { useAuth } from '../lib/authContext';
 import { SyncBadge } from './SyncBadge';
 import { ChangePasswordModal } from './ChangePasswordModal';
-import { Building2, LogOut, PlusCircle, Search, ShieldCheck, RefreshCw, Terminal, KeyRound } from 'lucide-react';
+import { Building2, LogOut, PlusCircle, Search, ShieldCheck, RefreshCw, Terminal, KeyRound, CloudDownload } from 'lucide-react';
 
 interface NavbarProps {
   onNewQuoteClick: () => void;
   onDeployGuideClick: () => void;
   onDevConsoleClick: () => void;
+  onCloudSyncClick?: () => void;
+  isCloudSyncing?: boolean;
   searchTerm: string;
   onSearchChange: (val: string) => void;
 }
@@ -16,6 +18,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onNewQuoteClick,
   onDeployGuideClick,
   onDevConsoleClick,
+  onCloudSyncClick,
+  isCloudSyncing,
   searchTerm,
   onSearchChange,
 }) => {
@@ -68,6 +72,18 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Actions & Sync Badge */}
           <div className="flex items-center gap-2.5">
             <SyncBadge />
+
+            {onCloudSyncClick && (
+              <button
+                onClick={onCloudSyncClick}
+                disabled={isCloudSyncing}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-slate-800 hover:text-black bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors border border-slate-300 cursor-pointer shadow-2xs disabled:opacity-60 disabled:cursor-not-allowed"
+                title="Buscar orçamentos criados em outros dispositivos/navegadores com esta conta"
+              >
+                <CloudDownload className={`w-3.5 h-3.5 text-blue-600 ${isCloudSyncing ? 'animate-bounce' : ''}`} />
+                <span className="hidden sm:inline">{isCloudSyncing ? 'Buscando...' : 'Baixar da Nuvem'}</span>
+              </button>
+            )}
 
             <button
               onClick={onDevConsoleClick}
