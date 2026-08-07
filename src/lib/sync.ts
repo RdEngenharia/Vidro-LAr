@@ -1,4 +1,20 @@
-import { getSyncQueue, clearSyncQueueItem, putCustomerLocal, putCategoryLocal, putProductLocal, putQuoteLocal, putCompanySettingsLocal } from './db';
+import {
+  getSyncQueue,
+  clearSyncQueueItem,
+  putCustomerLocal,
+  putCategoryLocal,
+  putProductLocal,
+  putQuoteLocal,
+  putCompanySettingsLocal,
+  getCustomers,
+  getCategories,
+  getProducts,
+  getQuotes,
+  deleteCustomerLocal,
+  deleteCategoryLocal,
+  deleteProductLocal,
+  deleteQuoteLocal,
+} from './db';
 import { db as firebaseDb, ensureFirebaseAuth } from './firebase';
 import { doc, setDoc, deleteDoc, collection, getDocs } from 'firebase/firestore';
 
@@ -204,20 +220,53 @@ async function pullTenantDataFromCloudInternal(tenantId: string): Promise<{ pull
 
     let pulled = 0;
 
-    const collections: Array<{ name: string; put: (data: any) => Promise<void> }> = [
-      { name: 'customers', put: putCustomerLocal },
-      { name: 'categories', put: putCategoryLocal },
-      { name: 'products', put: putProductLocal },
-      { name: 'quotes', put: putQuoteLocal },
-      { name: 'settings', put: putCompanySettingsLocal },
+    // IDs que ainda estão na fila local esperando ser enviados ao Firebase — não podem
+    // ser apagados durante a reconciliação abaixo, mesmo que ainda não apareçam na nuvem
+    // (podem ser criações/edições feitas offline, aguardando a próxima sincronização).
+    const pendingQueue = await getSyncQueue(tenantId);
+    const pendingIds = new Set(pendingQueue.map((item) => item?.data?.id).filter(Boolean));
+
+    // Coleções com reconciliação de exclusão: se um item existia localmente mas não
+    // existe mais na nuvem (e não está pendente de envio), foi apagado em outro
+    // dispositivo — então também é removido aqui. Sem isso, um orçamento apagado em
+    // um aparelho continuava "voltando" nos outros a cada sincronização.
+    const dataCollections: Array<{
+      name: 'customers' | 'categories' | 'products' | 'quotes';
+      put: (data: any) => Promise<void>;
+      getLocal: () => Promise<Array<{ id: string }>>;
+      deleteLocal: (id: string) => Promise<void>;
+    }> = [
+      { name: 'customers', put: putCustomerLocal, getLocal: () => getCustomers(tenantId), deleteLocal: deleteCustomerLocal },
+      { name: 'categories', put: putCategoryLocal, getLocal: () => getCategories(tenantId), deleteLocal: deleteCategoryLocal },
+      { name: 'products', put: putProductLocal, getLocal: () => getProducts(tenantId), deleteLocal: deleteProductLocal },
+      { name: 'quotes', put: putQuoteLocal, getLocal: () => getQuotes(tenantId), deleteLocal: deleteQuoteLocal },
     ];
 
-    for (const c of collections) {
+    for (const c of dataCollections) {
       const snap = await getDocs(collection(firebaseDb, 'tenants', tenantId, c.name));
+      const remoteIds = new Set<string>();
+
       for (const docSnap of snap.docs) {
-        await c.put(docSnap.data());
+        const data: any = docSnap.data();
+        if (data?.id) remoteIds.add(data.id);
+        await c.put(data);
         pulled++;
       }
+
+      const localItems = await c.getLocal();
+      for (const item of localItems) {
+        if (!remoteIds.has(item.id) && !pendingIds.has(item.id)) {
+          await c.deleteLocal(item.id);
+        }
+      }
+    }
+
+    // Configurações da empresa: documento único por tenant, sem reconciliação de
+    // exclusão (não faz sentido "apagar" as configurações de uma empresa).
+    const settingsSnap = await getDocs(collection(firebaseDb, 'tenants', tenantId, 'settings'));
+    for (const docSnap of settingsSnap.docs) {
+      await putCompanySettingsLocal(docSnap.data() as any);
+      pulled++;
     }
 
     return { pulled };

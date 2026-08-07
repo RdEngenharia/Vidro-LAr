@@ -369,3 +369,28 @@ export async function putCompanySettingsLocal(settings: CompanySettings): Promis
   const db = await getDB();
   await db.put('settings', settings);
 }
+
+// Remoções locais "silenciosas" (sem reenfileirar sincronização) — usadas pela
+// reconciliação de exclusões em pullTenantDataFromCloud (sync.ts): quando um
+// registro foi apagado em outro dispositivo, ele simplesmente não aparece mais
+// nos dados vindos do Firestore. Sem isso, um item apagado em um aparelho nunca
+// desaparecia dos outros.
+export async function deleteCustomerLocal(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete('customers', id);
+}
+
+export async function deleteCategoryLocal(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete('categories', id);
+}
+
+export async function deleteProductLocal(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete('products', id);
+}
+
+export async function deleteQuoteLocal(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete('quotes', id);
+}
