@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useAuth } from '../lib/authContext';
 import { SyncBadge } from './SyncBadge';
-import { Building2, LogOut, PlusCircle, Search, ShieldCheck, RefreshCw, Terminal } from 'lucide-react';
+import { ChangePasswordModal } from './ChangePasswordModal';
+import { Building2, LogOut, PlusCircle, Search, ShieldCheck, RefreshCw, Terminal, KeyRound } from 'lucide-react';
 
 interface NavbarProps {
   onNewQuoteClick: () => void;
@@ -19,10 +20,11 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSearchChange,
 }) => {
   const { user, settings, logout } = useAuth();
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
 
   return (
     <header className="sticky top-0 z-30 bg-white border-b border-slate-200 shadow-xs">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <ChangePasswordModal isOpen={isChangePasswordOpen} onClose={() => setIsChangePasswordOpen(false)} /><div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 gap-4">
           
           {/* Brand & Company Name */}
@@ -101,6 +103,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                   {user?.email}
                 </p>
               </div>
+              <button
+                onClick={() => setIsChangePasswordOpen(true)}
+                className="p-1.5 text-slate-400 hover:text-blue-600 rounded-md hover:bg-slate-100 transition-colors cursor-pointer"
+                title="Alterar Senha"
+              >
+                <KeyRound className="w-4 h-4" />
+              </button>
               <button
                 onClick={logout}
                 className="p-1.5 text-slate-400 hover:text-rose-600 rounded-md hover:bg-slate-100 transition-colors cursor-pointer"

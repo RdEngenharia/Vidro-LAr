@@ -5,6 +5,10 @@ import {
   signInWithEmailAndPassword,
   signOut,
   updateProfile,
+  sendPasswordResetEmail,
+  updatePassword,
+  reauthenticateWithCredential,
+  EmailAuthProvider,
   User as FirebaseUser,
 } from 'firebase/auth';
 import { UserProfile, CompanySettings } from '../types';
@@ -22,6 +26,8 @@ interface AuthContextType {
   register: (name: string, companyName: string, email: string, pass: string) => Promise<boolean>;
   logout: () => void;
   updateSettings: (newSettings: CompanySettings) => Promise<void>;
+  requestPasswordReset: (email: string) => Promise<boolean>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -54,6 +60,8 @@ function translateFirebaseAuthError(code?: string): string {
       return 'Configuração do Firebase inválida (chave de API incorreta). Verifique as variáveis de ambiente.';
     case 'auth/configuration-not-found':
       return 'Provedor de login não configurado no Firebase. Ative Email/senha em Authentication → Sign-in method.';
+    case 'auth/requires-recent-login':
+      return 'Por segurança, faça login novamente antes de trocar a senha.';
     default:
       return code
         ? `Não foi possível autenticar (código: ${code}). Veja detalhes no Painel do Desenvolvedor.`
@@ -188,6 +196,43 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setSettings(newSettings);
   };
 
+  // Envia e-mail de recuperação de senha (para quem esqueceu e não está logado)
+  const requestPasswordReset = async (email: string): Promise<boolean> => {
+    setAuthError(null);
+    if (!firebaseAuth) {
+      setAuthError('Firebase não configurado. Verifique o arquivo .env do projeto.');
+      return false;
+    }
+    try {
+      await sendPasswordResetEmail(firebaseAuth, email.trim().toLowerCase());
+      return true;
+    } catch (err: any) {
+      logError('AUTH_PASSWORD_RESET', err, { email: email.trim().toLowerCase() });
+      setAuthError(translateFirebaseAuthError(err?.code));
+      return false;
+    }
+  };
+
+  // Troca a senha de dentro do sistema, com o usuário já logado.
+  // O Firebase exige reautenticação recente por segurança antes de trocar a senha.
+  const changePassword = async (currentPassword: string, newPassword: string): Promise<boolean> => {
+    setAuthError(null);
+    if (!firebaseAuth || !firebaseAuth.currentUser || !firebaseAuth.currentUser.email) {
+      setAuthError('Nenhum usuário autenticado.');
+      return false;
+    }
+    try {
+      const credential = EmailAuthProvider.credential(firebaseAuth.currentUser.email, currentPassword);
+      await reauthenticateWithCredential(firebaseAuth.currentUser, credential);
+      await updatePassword(firebaseAuth.currentUser, newPassword);
+      return true;
+    } catch (err: any) {
+      logError('AUTH_CHANGE_PASSWORD', err, { email: firebaseAuth.currentUser?.email });
+      setAuthError(translateFirebaseAuthError(err?.code));
+      return false;
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -199,6 +244,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         register,
         logout,
         updateSettings,
+        requestPasswordReset,
+        changePassword,
       }}
     >
       {children}

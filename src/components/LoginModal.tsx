@@ -9,10 +9,12 @@ interface LoginModalProps {
 
 // NOTA: o cadastro público (self-service) foi desativado por decisão do administrador.
 // Novas contas de vidraçaria são criadas manualmente no Firebase Console
-// (Authentication → Users → Add user). Esta tela só faz login.
+// (Authentication → Users → Add user). Esta tela só faz login (+ recuperação de senha).
 export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onDevConsoleClick }) => {
-  const { login, authError } = useAuth();
+  const { login, authError, requestPasswordReset } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const [resetSentMessage, setResetSentMessage] = useState('');
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -33,6 +35,23 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onDevConsoleClic
     setIsSubmitting(false);
     if (!success) {
       setErrorMessage(authError || 'Credenciais inválidas');
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    setErrorMessage('');
+    setResetSentMessage('');
+    if (!email) {
+      setErrorMessage('Digite seu e-mail no campo acima primeiro, depois clique em "Esqueci minha senha".');
+      return;
+    }
+    setIsResettingPassword(true);
+    const success = await requestPasswordReset(email);
+    setIsResettingPassword(false);
+    if (success) {
+      setResetSentMessage(`Enviamos um link de redefinição de senha para ${email}. Verifique sua caixa de entrada (e o spam).`);
+    } else {
+      setErrorMessage(authError || 'Não foi possível enviar o e-mail de redefinição.');
     }
   };
 
@@ -73,6 +92,12 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onDevConsoleClic
           {errorMessage && (
             <div className="mb-4 p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold rounded-xl text-center">
               {errorMessage}
+            </div>
+          )}
+
+          {resetSentMessage && (
+            <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold rounded-xl text-center">
+              {resetSentMessage}
             </div>
           )}
 
@@ -117,6 +142,17 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onDevConsoleClic
               <ArrowRight className="w-4 h-4 text-blue-400" />
             </button>
           </form>
+
+          <div className="mt-3 text-center">
+            <button
+              type="button"
+              onClick={handleForgotPassword}
+              disabled={isResettingPassword}
+              className="text-xs font-bold text-blue-600 hover:underline cursor-pointer disabled:opacity-60"
+            >
+              {isResettingPassword ? 'Enviando...' : 'Esqueci minha senha'}
+            </button>
+          </div>
 
           <div className="mt-4 p-3 bg-slate-50 rounded-xl text-[11px] text-slate-500 text-center flex items-center justify-center gap-1.5">
             <WifiOff className="w-3.5 h-3.5 text-slate-400 shrink-0" />
