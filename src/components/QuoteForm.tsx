@@ -873,7 +873,7 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({
                   Divisão de Pagamento & Condições Negociadas
                 </h4>
                 <p className="text-[11px] text-purple-300">
-                  Defina de forma 100% dinâmica as formas de pagamento escolhidas pelo cliente (Dinheiro, PIX, Cartão, Permuta, etc.)
+                  Defina de forma 100% dinâmica as formas de pagamento escolhidas pelo cliente (Dinheiro, PIX, Cartão, Boleto, etc.)
                 </p>
               </div>
             </div>
@@ -1129,131 +1129,7 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({
           )}
         </div>
 
-          {/* Custom Entrada & Saldo A Prazo Section */}
-          <div className="bg-slate-800 p-4 rounded-xl border border-blue-500/30 md:col-span-3 space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700 pb-3">
-              <div className="flex items-center gap-2">
-                <Info className="w-4 h-4 text-blue-400" />
-                <h4 className="font-bold text-xs sm:text-sm text-white uppercase tracking-wider">
-                  Condições de Entrada & Saldo A Prazo (Negociação)
-                </h4>
-              </div>
-              <span className="text-[11px] text-blue-300">
-                Ajuste a porcentagem ou os valores exatos negociados com este cliente
-              </span>
-            </div>
 
-            {/* Quick Preset Buttons */}
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs text-slate-400 font-semibold mr-1">Opções de Entrada:</span>
-              {[
-                { label: '100% À Vista', pct: 100 },
-                { label: '50% / 50%', pct: 50 },
-                { label: '60% / 40%', pct: 60 },
-                { label: '30% / 70%', pct: 30 },
-                { label: '0% (Sem Entrada)', pct: 0 },
-              ].map((btn) => (
-                <button
-                  key={btn.pct}
-                  type="button"
-                  onClick={() => handleSelectDepositPercent(btn.pct)}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer border ${
-                    !isManualDepositAmount && depositPercent === btn.pct
-                      ? 'bg-blue-600 text-white border-blue-400 shadow-xs'
-                      : 'bg-slate-900 text-slate-300 border-slate-700 hover:bg-slate-700 hover:text-white'
-                  }`}
-                >
-                  {btn.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Interactive Inputs Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 bg-slate-950/60 p-3.5 rounded-xl border border-slate-800">
-              
-              {/* % Entrada */}
-              <div>
-                <label className="block text-[11px] font-bold text-slate-300 mb-1">
-                  % Porcentagem Entrada
-                </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="0.5"
-                    value={depositPercent}
-                    onChange={(e) => {
-                      const p = Number(e.target.value);
-                      setDepositPercent(p);
-                      setIsManualDepositAmount(false);
-                    }}
-                    className="w-full p-2 bg-slate-900 border border-slate-700 rounded-lg text-xs font-bold text-blue-300 font-mono pr-7 focus:border-blue-500 focus:outline-hidden"
-                  />
-                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">%</span>
-                </div>
-              </div>
-
-              {/* Valor Entrada R$ */}
-              <div>
-                <label className="block text-[11px] font-bold text-slate-300 mb-1">
-                  Valor da Entrada (R$)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={depositAmount}
-                  onChange={(e) => handleDepositAmountChange(Number(e.target.value))}
-                  className="w-full p-2 bg-slate-900 border border-emerald-500/50 rounded-lg text-xs font-black font-mono text-emerald-400 focus:border-emerald-400 focus:outline-hidden"
-                  title="Valor da entrada pago no pedido"
-                />
-              </div>
-
-              {/* Valor A Prazo R$ */}
-              <div>
-                <label className="block text-[11px] font-bold text-slate-300 mb-1">
-                  Saldo A Prazo (R$)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={remainingAmount}
-                  onChange={(e) => handleRemainingAmountChange(Number(e.target.value))}
-                  className="w-full p-2 bg-slate-900 border border-amber-500/50 rounded-lg text-xs font-black font-mono text-amber-300 focus:border-amber-400 focus:outline-hidden"
-                  title="Valor restante a prazo"
-                />
-              </div>
-
-              {/* Condições / Observação do Saldo */}
-              <div>
-                <label className="block text-[11px] font-bold text-slate-300 mb-1">
-                  Condição do Saldo A Prazo
-                </label>
-                <input
-                  type="text"
-                  value={remainingPaymentNotes}
-                  onChange={(e) => setRemainingPaymentNotes(e.target.value)}
-                  placeholder="Ex: 3x no cartão na entrega / Cheque 30 dias"
-                  className="w-full p-2 bg-slate-900 border border-slate-700 rounded-lg text-xs font-medium text-slate-200 focus:border-blue-500 focus:outline-hidden placeholder-slate-500"
-                />
-              </div>
-
-            </div>
-
-            {/* Summary sentence */}
-            <div className="text-xs text-slate-300 font-mono bg-slate-900/80 p-2.5 rounded-lg border border-slate-800 flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <span className="text-slate-400">Condições do Pedido:</span>{' '}
-                <strong className="text-emerald-400">Entrada: R$ {depositAmount.toFixed(2)} ({depositPercent.toFixed(1)}%)</strong>
-                {' • '}
-                <strong className="text-amber-300">Saldo A Prazo: R$ {remainingAmount.toFixed(2)} ({Math.max(0, 100 - depositPercent).toFixed(1)}%)</strong>
-              </div>
-              <span className="text-[11px] text-blue-300 italic">{remainingPaymentNotes}</span>
-            </div>
-
-          </div>
 
         {/* Observations */}
         <div>

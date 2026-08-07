@@ -81,7 +81,7 @@ export const QuotePDFView: React.FC<QuotePDFViewProps> = ({
         : `*Total Cartão:* ${formatCurrency(cardAmt)}`;
 
     const splitsText = quote.paymentSplits && quote.paymentSplits.length > 0
-      ? `\n🔀 *DIVISÃO DE PAGAMENTO / PERMUTA:*
+      ? `\n🔀 *DIVISÃO DE PAGAMENTO:*
 ` + quote.paymentSplits.map(s => `• *${s.method}:* ${formatCurrency(s.amount)}${s.description ? ` (${s.description})` : ''}`).join('\n')
       : '';
 
@@ -353,7 +353,7 @@ Ficamos à disposição para agendar sua instalação!`;
             {quote.paymentSplits && quote.paymentSplits.length > 0 && (
               <div className="p-1.5 bg-purple-50/60 border-t border-black text-[10px]">
                 <div className="font-black uppercase text-purple-950 border-b border-purple-200 pb-0.5 mb-1">
-                  Divisão do Pagamento (Formas Combinadas & Permuta):
+                  Divisão do Pagamento:
                 </div>
                 <div className="space-y-0.5">
                   {quote.paymentSplits.map((s, idx) => (
