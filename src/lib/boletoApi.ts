@@ -41,7 +41,21 @@ export async function getBoletoConfigStatus(tenantId: string): Promise<BoletoCon
   };
 }
 
-export async function getBoletoProviders(): Promise<Array<{ id: BoletoProvider; label: string; implemented: boolean }>> {
+export async function getBoletoProviders(): Promise<
+  Array<{
+    id: BoletoProvider;
+    label: string;
+    implemented: boolean;
+    credentialFields: Array<{
+      id: string;
+      label: string;
+      type: 'text' | 'password' | 'file';
+      optional?: boolean;
+      accept?: string;
+      hint?: string;
+    }>;
+  }>
+> {
   const fn = httpsCallable(requireFunctions(), 'getBoletoProviders');
   const res = await fn({});
   return (res.data as any).providers || [];
@@ -50,8 +64,11 @@ export async function getBoletoProviders(): Promise<Array<{ id: BoletoProvider; 
 export async function saveBoletoCredentials(params: {
   provider: BoletoProvider;
   ambiente: 'producao' | 'homologacao';
-  clientId: string;
-  clientSecret: string;
+  clientId?: string;
+  apiKey?: string;
+  clientSecret?: string;
+  certificateBase64?: string;
+  certificatePassword?: string;
 }): Promise<void> {
   const fn = httpsCallable(requireFunctions(), 'saveBoletoCredentials');
   await fn(params);

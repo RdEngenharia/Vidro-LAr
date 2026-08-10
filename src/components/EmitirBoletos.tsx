@@ -32,6 +32,15 @@ interface EmitirBoletosProps {
   onClearPrefill?: () => void;
 }
 
+interface CredentialField {
+  id: string;
+  label: string;
+  type: 'text' | 'password' | 'file';
+  optional?: boolean;
+  accept?: string;
+  hint?: string;
+}
+
 export const EmitirBoletos: React.FC<EmitirBoletosProps> = ({
   tenantId,
   customers,
@@ -42,7 +51,9 @@ export const EmitirBoletos: React.FC<EmitirBoletosProps> = ({
   // Lista de bancos — vem do servidor, não é mais fixa aqui. Se um banco ainda
   // não tem a integração pronta, a tela mostra isso claramente em vez de deixar
   // a pessoa descobrir só na hora de cobrar o cliente de verdade.
-  const [providers, setProviders] = useState<Array<{ id: BoletoProvider; label: string; implemented: boolean }>>([]);
+  const [providers, setProviders] = useState<
+    Array<{ id: BoletoProvider; label: string; implemented: boolean; credentialFields: CredentialField[] }>
+  >([]);
 
   // Cofre / configuração
   const [configLoading, setConfigLoading] = useState(true);
@@ -53,8 +64,11 @@ export const EmitirBoletos: React.FC<EmitirBoletosProps> = ({
   const [isVaultOpen, setIsVaultOpen] = useState(false);
   const [vaultProvider, setVaultProvider] = useState<BoletoProvider>('simulado');
   const [vaultAmbiente, setVaultAmbiente] = useState<'producao' | 'homologacao'>('producao');
-  const [clientId, setClientId] = useState('');
-  const [clientSecret, setClientSecret] = useState('');
+  // Valores dos campos de credencial — genérico porque cada banco pede campos
+  // diferentes (ver credentialFields, vindo do servidor). Ex: { apiKey: '...' }
+  // para o Asaas, ou { clientId, clientSecret, certificateBase64 } pra Efí/Inter.
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
+  const [fieldFileNames, setFieldFileNames] = useState<Record<string, string>>({});
   const [isSavingVault, setIsSavingVault] = useState(false);
   const [vaultError, setVaultError] = useState('');
   const [vaultSuccess, setVaultSuccess] = useState('');
@@ -89,13 +103,43 @@ export const EmitirBoletos: React.FC<EmitirBoletosProps> = ({
     } catch {
       // Se as Cloud Functions ainda não foram publicadas, mostramos isso mais
       // abaixo (vaultError ao tentar salvar) em vez de travar a tela toda aqui.
-      setProviders([{ id: 'simulado', label: 'Modo Teste (Simulado)', implemented: true }]);
+      setProviders([{ id: 'simulado', label: 'Modo Teste (Simulado)', implemented: true, credentialFields: [] }]);
     }
   };
 
   const providerLabel = (id: BoletoProvider | null) => {
     if (!id) return '';
     return providers.find((p) => p.id === id)?.label || id;
+  };
+
+  const currentCredentialFields = useMemo(
+    () => providers.find((p) => p.id === vaultProvider)?.credentialFields || [],
+    [providers, vaultProvider]
+  );
+
+  const handleFieldChange = (fieldId: string, value: string) => {
+    setFieldValues((prev) => ({ ...prev, [fieldId]: value }));
+  };
+
+  const handleFileFieldChange = async (fieldId: string, file: File | null) => {
+    if (!file) return;
+    setFieldFileNames((prev) => ({ ...prev, [fieldId]: file.name }));
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error('Não foi possível ler o arquivo do certificado.'));
+        reader.onloadend = () => {
+          const result = reader.result as string;
+          // readAsDataURL devolve "data:<mime>;base64,<dados>" — guardamos só a
+          // parte útil, o servidor não precisa do prefixo.
+          resolve(result.split(',')[1] || result);
+        };
+        reader.readAsDataURL(file);
+      });
+      handleFieldChange(fieldId, base64);
+    } catch (err: any) {
+      setVaultError(err?.message || 'Erro ao ler o arquivo do certificado.');
+    }
   };
 
   const loadConfigStatus = async () => {
@@ -202,13 +246,22 @@ export const EmitirBoletos: React.FC<EmitirBoletosProps> = ({
     setVaultError('');
     setVaultSuccess('');
 
-    // Padrão "deixe em branco para manter o atual": só exige preencher as
-    // credenciais se for a primeira vez, ou se estiver trocando de provedor.
+    // Padrão "deixe em branco para manter o atual": só exige preencher os
+    // campos obrigatórios se for a primeira vez, ou se estiver trocando de
+    // provedor. Campos marcados como "optional" (ex: senha do certificado)
+    // nunca são obrigatórios.
     const isUpdatingSameProvider = configured && configuredProvider === vaultProvider;
-    const isSimulado = vaultProvider === 'simulado';
+    const missingRequired = currentCredentialFields.some(
+      (f) => !f.optional && !fieldValues[f.id]?.trim() && !isUpdatingSameProvider
+    );
 
-    if (!isSimulado && !isUpdatingSameProvider && (!clientId.trim() || !clientSecret.trim())) {
-      setVaultError('Informe o Client ID e o Client Secret fornecidos pelo banco.');
+    if (missingRequired) {
+      setVaultError(
+        `Preencha todos os campos obrigatórios: ${currentCredentialFields
+          .filter((f) => !f.optional)
+          .map((f) => f.label)
+          .join(', ')}.`
+      );
       return;
     }
 
@@ -217,14 +270,17 @@ export const EmitirBoletos: React.FC<EmitirBoletosProps> = ({
       await saveBoletoCredentials({
         provider: vaultProvider,
         ambiente: vaultAmbiente,
-        clientId: clientId.trim() || (isSimulado ? 'simulado' : ''),
-        clientSecret: clientSecret.trim() || (isSimulado ? 'simulado' : ''),
+        clientId: fieldValues.clientId?.trim() || undefined,
+        apiKey: fieldValues.apiKey?.trim() || undefined,
+        clientSecret: fieldValues.clientSecret?.trim() || undefined,
+        certificateBase64: fieldValues.certificateBase64 || undefined,
+        certificatePassword: fieldValues.certificatePassword?.trim() || undefined,
       });
       setVaultSuccess('Cofre configurado com sucesso!');
       // Limpa os segredos da tela assim que saem daqui — nunca ficam visíveis
       // de novo, nem para quem acabou de digitá-los.
-      setClientId('');
-      setClientSecret('');
+      setFieldValues({});
+      setFieldFileNames({});
       await loadConfigStatus();
       setTimeout(() => setVaultSuccess(''), 3000);
     } catch (err: any) {
@@ -401,35 +457,53 @@ export const EmitirBoletos: React.FC<EmitirBoletosProps> = ({
                       </span>
                     </div>
                   )}
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Client ID</label>
-                    <input
-                      type="text"
-                      value={clientId}
-                      onChange={(e) => setClientId(e.target.value)}
-                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-hidden focus:ring-2 focus:ring-slate-900"
-                      placeholder={
-                        configured && configuredProvider === vaultProvider
-                          ? 'Deixe em branco para manter o atual'
-                          : 'Client ID fornecido pelo banco'
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Client Secret</label>
-                    <input
-                      type="password"
-                      value={clientSecret}
-                      onChange={(e) => setClientSecret(e.target.value)}
-                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-hidden focus:ring-2 focus:ring-slate-900"
-                      placeholder={
-                        configured && configuredProvider === vaultProvider
-                          ? 'Deixe em branco para manter o atual — nunca é mostrado de novo'
-                          : 'Client Secret fornecido pelo banco'
-                      }
-                      autoComplete="new-password"
-                    />
-                  </div>
+
+                  {/* Campos de credencial variam por banco: Asaas só pede uma Chave de
+                      API; Efí/Inter pedem Client ID + Client Secret + certificado digital.
+                      A lista vem do servidor (providers[].credentialFields). */}
+                  {currentCredentialFields.map((field) => (
+                    <div key={field.id}>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        {field.label}
+                        {field.optional && <span className="text-slate-400 font-normal"> (opcional)</span>}
+                      </label>
+
+                      {field.type === 'file' ? (
+                        <>
+                          <input
+                            type="file"
+                            accept={field.accept}
+                            onChange={(e) => handleFileFieldChange(field.id, e.target.files?.[0] || null)}
+                            className="w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-slate-900 file:text-white hover:file:bg-slate-800 cursor-pointer"
+                          />
+                          {fieldFileNames[field.id] && (
+                            <p className="text-[10px] text-emerald-700 mt-1 flex items-center gap-1">
+                              <Check className="w-3 h-3" /> {fieldFileNames[field.id]} carregado
+                            </p>
+                          )}
+                          {!fieldFileNames[field.id] && configured && configuredProvider === vaultProvider && (
+                            <p className="text-[10px] text-slate-400 mt-1">
+                              Deixe em branco para manter o certificado já enviado.
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        <input
+                          type={field.type}
+                          value={fieldValues[field.id] || ''}
+                          onChange={(e) => handleFieldChange(field.id, e.target.value)}
+                          className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-hidden focus:ring-2 focus:ring-slate-900"
+                          placeholder={
+                            configured && configuredProvider === vaultProvider
+                              ? `Deixe em branco para manter ${field.type === 'password' ? '— nunca é mostrado de novo' : 'o atual'}`
+                              : `${field.label} fornecido pelo banco`
+                          }
+                          autoComplete={field.type === 'password' ? 'new-password' : 'off'}
+                        />
+                      )}
+                      {field.hint && <p className="text-[10px] text-slate-400 mt-1">{field.hint}</p>}
+                    </div>
+                  ))}
                 </>
               )}
 

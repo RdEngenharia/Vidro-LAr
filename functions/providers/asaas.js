@@ -22,4 +22,11 @@ async function issueBoleto(_credentials, _boletoData) {
   );
 }
 
-module.exports = { issueBoleto, implemented: false, label: 'Asaas' };
+module.exports = {
+  issueBoleto,
+  implemented: false,
+  label: 'Asaas',
+  // O Asaas é mais simples que os bancos com certificado: só uma Chave de API
+  // (enviada no header access_token). Sem Client ID/Secret, sem certificado.
+  credentialFields: [{ id: 'apiKey', label: 'Chave de API (API Key)', type: 'password' }],
+};

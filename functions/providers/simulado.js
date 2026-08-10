@@ -29,4 +29,9 @@ async function issueBoleto(_credentials, boletoData) {
   };
 }
 
-module.exports = { issueBoleto, implemented: true, label: 'Modo Teste (Simulado)' };
+module.exports = {
+  issueBoleto,
+  implemented: true,
+  label: 'Modo Teste (Simulado)',
+  credentialFields: [], // não precisa de nenhuma credencial real
+};

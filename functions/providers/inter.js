@@ -17,4 +17,23 @@ async function issueBoleto(_credentials, _boletoData) {
   );
 }
 
-module.exports = { issueBoleto, implemented: false, label: 'Banco Inter' };
+module.exports = {
+  issueBoleto,
+  implemented: false,
+  label: 'Banco Inter',
+  // O Inter usa OAuth2 client_credentials + certificado mTLS. O banco entrega
+  // um .crt + .key separados — a API de boletos costuma exigir um .pfx/.p12
+  // único, então geralmente é preciso converter antes de subir aqui.
+  credentialFields: [
+    { id: 'clientId', label: 'Client ID', type: 'text' },
+    { id: 'clientSecret', label: 'Client Secret', type: 'password' },
+    {
+      id: 'certificateBase64',
+      label: 'Certificado convertido (.pfx/.p12)',
+      type: 'file',
+      accept: '.pfx,.p12',
+      hint: 'O Inter entrega .crt + .key separados — converta para .pfx/.p12 antes de enviar aqui.',
+    },
+    { id: 'certificatePassword', label: 'Senha do certificado (se houver)', type: 'password', optional: true },
+  ],
+};

@@ -47,6 +47,7 @@ exports.getBoletoProviders = onCall(async () => {
     id,
     label: mod.label || id,
     implemented: !!mod.implemented,
+    credentialFields: mod.credentialFields || [],
   }));
   return { providers: list };
 });
@@ -54,44 +55,76 @@ exports.getBoletoProviders = onCall(async () => {
 // ---------------------------------------------------------------------------
 // saveBoletoCredentials — grava as credenciais do banco no cofre do tenant.
 // ---------------------------------------------------------------------------
-// O documento em `boletoVaults/{tenantId}` é bloqueado nas regras do Firestore
-// (ninguém lê/escreve direto por lá) — só esta função, com privilégio de
-// administrador, consegue tocar nele. O clientSecret é cifrado antes de ser
-// gravado (AES-256-GCM com chave mestra guardada como Secret do Cloud
-// Functions), então nem um acesso administrativo direto ao banco de dados
-// revela a chave em texto puro.
+// Cada banco pede um conjunto diferente de credenciais (Asaas: só uma Chave de
+// API; Efí/Inter: Client ID + Client Secret + certificado digital). Em vez de
+// um campo fixo por tipo, guardamos TUDO que é sensível como um único blob
+// cifrado (JSON), cujo formato varia conforme `provider.credentialFields`
+// (definido em cada arquivo de /providers). O documento em
+// `boletoVaults/{tenantId}` é bloqueado nas regras do Firestore — só esta
+// função, com privilégio de administrador, consegue tocar nele.
 exports.saveBoletoCredentials = onCall({ secrets: [BOLETO_VAULT_KEY] }, async (request) => {
   const tenantId = requireAuth(request);
-  const { provider, ambiente, clientId, clientSecret, conta } = request.data || {};
+  const { provider, ambiente, clientId, apiKey, clientSecret, certificateBase64, certificatePassword } =
+    request.data || {};
 
   if (!provider || typeof provider !== 'string') {
     throw new HttpsError('invalid-argument', 'Informe qual provedor/banco está configurando.');
   }
 
+  const providerMod = getProvider(provider);
+
   const existingSnap = await db.collection('boletoVaults').doc(tenantId).get();
   const existing = existingSnap.exists ? existingSnap.data() : null;
   const isSameProvider = existing && existing.provider === provider;
 
-  // Padrão "deixe em branco para manter o atual": se o usuário está atualizando
-  // o MESMO provedor e não digitou um novo Client ID/Secret, mantemos os que
-  // já estavam guardados, em vez de forçar redigitar tudo toda vez que quiser
-  // só trocar o endereço/observações.
-  const finalClientId = clientId?.trim() || (isSameProvider ? existing.clientId : '');
-  const finalClientSecret = clientSecret?.trim() || (isSameProvider ? existing.clientSecretEnc : '');
-
-  if (!finalClientId || !finalClientSecret) {
-    throw new HttpsError('invalid-argument', 'Informe o Client ID e o Client Secret fornecidos pelo banco.');
+  // Descriptografa o que já existia (se for o mesmo provedor) para poder
+  // aplicar o padrão "deixe em branco para manter o atual" campo a campo.
+  let existingSecrets = {};
+  if (isSameProvider && existing.secretsEnc) {
+    try {
+      existingSecrets = JSON.parse(decrypt(existing.secretsEnc));
+    } catch (err) {
+      throw new HttpsError(
+        'failed-precondition',
+        `Erro ao ler as credenciais já guardadas: ${err.message}. Verifique se a secret BOLETO_VAULT_KEY não mudou.`
+      );
+    }
   }
 
-  // IMPORTANTE: erros de criptografia (ex: BOLETO_VAULT_KEY não configurada ou
-  // sem permissão de acesso) ficavam mascarados como um "INTERNAL" genérico —
-  // o Firebase esconde a mensagem real de erros tipo "internal" por segurança,
-  // então precisamos capturar aqui e relançar com um código que mostra o motivo.
-  let clientSecretEnc;
+  let newSecrets = {};
+  let finalClientId = null;
+
+  if (provider === 'simulado') {
+    // Nenhuma credencial real necessária.
+  } else if (provider === 'asaas') {
+    const finalApiKey = apiKey?.trim() || existingSecrets.apiKey || '';
+    if (!finalApiKey) {
+      throw new HttpsError('invalid-argument', 'Informe a Chave de API (API Key) do Asaas.');
+    }
+    newSecrets = { apiKey: finalApiKey };
+  } else {
+    // Efí, Inter e qualquer futuro provedor no mesmo formato: Client ID +
+    // Client Secret + certificado digital.
+    finalClientId = clientId?.trim() || (isSameProvider ? existing.clientId : '') || '';
+    const finalClientSecret = clientSecret?.trim() || existingSecrets.clientSecret || '';
+    const finalCertificate = certificateBase64 || existingSecrets.certificateBase64 || '';
+
+    if (!finalClientId || !finalClientSecret || !finalCertificate) {
+      throw new HttpsError(
+        'invalid-argument',
+        `Informe o Client ID, o Client Secret e o certificado digital fornecidos pelo ${providerMod.label || provider}.`
+      );
+    }
+    newSecrets = {
+      clientSecret: finalClientSecret,
+      certificateBase64: finalCertificate,
+      certificatePassword: certificatePassword?.trim() || existingSecrets.certificatePassword || '',
+    };
+  }
+
+  let secretsEnc;
   try {
-    clientSecretEnc = clientSecret?.trim()
-      ? encrypt(clientSecret.trim())
-      : finalClientSecret; // já estava cifrado, não recifra de novo
+    secretsEnc = encrypt(JSON.stringify(newSecrets));
   } catch (err) {
     throw new HttpsError(
       'failed-precondition',
@@ -103,19 +136,22 @@ exports.saveBoletoCredentials = onCall({ secrets: [BOLETO_VAULT_KEY] }, async (r
     provider,
     ambiente: ambiente === 'homologacao' ? 'homologacao' : 'producao',
     clientId: finalClientId,
-    clientSecretEnc,
-    conta: conta || null,
+    secretsEnc,
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     createdAt: existing?.createdAt || admin.firestore.FieldValue.serverTimestamp(),
   });
 
   // Status "público" (sem segredo nenhum) que o app web PODE ler, só pra saber
   // se já existe uma configuração e de qual provedor/ambiente, pra exibir na tela.
+  const identificacaoBase = finalClientId || newSecrets.apiKey || '';
   await db.collection('tenants').doc(tenantId).collection('boletoConfig').doc('status').set({
     configured: true,
     provider,
     ambiente: ambiente === 'homologacao' ? 'homologacao' : 'producao',
-    identificacao: finalClientId.length > 8 ? `${finalClientId.slice(0, 4)}…${finalClientId.slice(-4)}` : finalClientId,
+    identificacao:
+      identificacaoBase.length > 8
+        ? `${identificacaoBase.slice(0, 4)}…${identificacaoBase.slice(-4)}`
+        : identificacaoBase,
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   });
 
@@ -185,9 +221,9 @@ exports.issueBoleto = onCall({ secrets: [BOLETO_VAULT_KEY] }, async (request) =>
 
   // Descriptografa o segredo só neste instante, em memória, pelo tempo mínimo
   // necessário para repassar ao banco — nunca é logado nem devolvido ao cliente.
-  let decryptedSecret;
+  let decryptedSecrets;
   try {
-    decryptedSecret = decrypt(vault.clientSecretEnc);
+    decryptedSecrets = JSON.parse(decrypt(vault.secretsEnc));
   } catch (err) {
     throw new HttpsError(
       'failed-precondition',
@@ -195,12 +231,14 @@ exports.issueBoleto = onCall({ secrets: [BOLETO_VAULT_KEY] }, async (request) =>
     );
   }
 
+  // Formato varia por banco: Asaas só tem apiKey; Efí/Inter têm clientId (em
+  // texto no documento) + clientSecret/certificado (cifrados). Repassamos tudo
+  // junto para o provedor, que usa só o que precisa.
   const credentials = {
     provider: vault.provider,
     ambiente: vault.ambiente,
     clientId: vault.clientId,
-    clientSecret: decryptedSecret,
-    conta: vault.conta,
+    ...decryptedSecrets,
   };
 
   let result;

@@ -18,4 +18,17 @@ async function issueBoleto(_credentials, _boletoData) {
   );
 }
 
-module.exports = { issueBoleto, implemented: false, label: 'Efí (Gerencianet)' };
+module.exports = {
+  issueBoleto,
+  implemented: false,
+  label: 'Efí (Gerencianet)',
+  // A Efí usa OAuth2 client_credentials + certificado mTLS (.p12) — não é só
+  // Client ID/Secret como a Efí antiga (Gerencianet legado) ou outros bancos
+  // sem certificado.
+  credentialFields: [
+    { id: 'clientId', label: 'Client ID', type: 'text' },
+    { id: 'clientSecret', label: 'Client Secret', type: 'password' },
+    { id: 'certificateBase64', label: 'Certificado (.p12)', type: 'file', accept: '.p12,.pfx' },
+    { id: 'certificatePassword', label: 'Senha do certificado (se houver)', type: 'password', optional: true },
+  ],
+};
