@@ -156,7 +156,7 @@ export interface UserProfile {
   isOfflineMode?: boolean;
 }
 
-export type BoletoProvider = 'simulado' | 'efi' | 'inter' | 'asaas';
+export type BoletoProvider = 'efi' | 'inter' | 'asaas';
 
 export interface Boleto {
   id: string;

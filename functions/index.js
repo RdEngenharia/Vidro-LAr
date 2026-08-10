@@ -195,6 +195,8 @@ exports.issueBoleto = onCall({ secrets: [BOLETO_VAULT_KEY] }, async (request) =>
     customerName,
     customerDocument, // CPF/CNPJ do pagador — exigido por boletos registrados
     customerAddress,  // { logradouro, numero, bairro, cidade, uf, cep }
+    customerEmail,
+    customerPhone,
     quoteId,
     quoteCodeNumber,
     amount,
@@ -260,6 +262,8 @@ exports.issueBoleto = onCall({ secrets: [BOLETO_VAULT_KEY] }, async (request) =>
       payerName: customerName,
       payerDocument: customerDocument || null,
       payerAddress: customerAddress || null,
+      payerEmail: customerEmail || null,
+      payerPhone: customerPhone || null,
       description: description || `Orçamento #${quoteCodeNumber || ''}`.trim(),
     });
   } catch (err) {

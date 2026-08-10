@@ -83,6 +83,8 @@ export interface IssueBoletoParams {
   customerId?: string;
   customerName: string;
   customerDocument?: string; // CPF/CNPJ do pagador
+  customerEmail?: string;
+  customerPhone?: string;
   customerAddress?: {
     logradouro: string;
     numero?: string;
