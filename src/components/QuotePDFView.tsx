@@ -155,7 +155,11 @@ Ficamos à disposição para agendar sua instalação!`;
               className="px-2.5 py-1.5 bg-slate-100 border border-slate-300 rounded-lg text-xs font-bold text-slate-800 focus:outline-hidden cursor-pointer"
             >
               <option value="gerado">1. Orçamento Gerado</option>
-              <option value="aprovado_50">2. Entrada 50% Paga</option>
+              <option value="aprovado_50">
+                2. {((quote.paymentSplits && quote.paymentSplits.length === 1) || quote.depositPercent === 100)
+                  ? 'Pagamento Total Recebido'
+                  : 'Entrada 50% Paga'}
+              </option>
               <option value="aguardando_material">3. Aguardando Material (Fábrica)</option>
               <option value="pronto_instalacao">4. Pronto p/ Instalação</option>
               <option value="concluido">5. Concluído (100% Quitados)</option>
@@ -167,7 +171,11 @@ Ficamos à disposição para agendar sua instalação!`;
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer"
               >
                 <DollarSign className="w-3.5 h-3.5" />
-                <span>Registrar 50% Entrada</span>
+                <span>
+                  {(quote.paymentSplits && quote.paymentSplits.length === 1) || quote.depositPercent === 100
+                    ? 'Registrar Pagamento Total (100%)'
+                    : 'Registrar 50% Entrada'}
+                </span>
               </button>
             )}
 

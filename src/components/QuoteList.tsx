@@ -85,8 +85,11 @@ export const QuoteList: React.FC<QuoteListProps> = ({
     .filter((q) => q.status !== 'concluido' && q.status !== 'gerado')
     .reduce((sum, q) => sum + (q.remainingAmount || q.totalAmount / 2), 0);
 
-  const getStatusBadge = (status: Quote['status']) => {
-    switch (status) {
+  const getStatusBadge = (quote: Quote) => {
+    const isFullUpfront =
+      (quote.paymentSplits && quote.paymentSplits.length === 1) || quote.depositPercent === 100;
+
+    switch (quote.status) {
       case 'gerado':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
@@ -98,7 +101,7 @@ export const QuoteList: React.FC<QuoteListProps> = ({
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">
             <DollarSign className="w-3.5 h-3.5 text-amber-600" />
-            <span>Entrada Paga</span>
+            <span>{isFullUpfront ? 'Pagamento Total Recebido' : 'Entrada Paga'}</span>
           </span>
         );
       case 'aguardando_material':
@@ -293,7 +296,7 @@ export const QuoteList: React.FC<QuoteListProps> = ({
 
                     {/* Status Badge */}
                     <td className="p-3.5 text-center">
-                      {getStatusBadge(q.status)}
+                      {getStatusBadge(q)}
                     </td>
 
                     {/* Total Amount */}
@@ -358,7 +361,11 @@ export const QuoteList: React.FC<QuoteListProps> = ({
                           <button
                             onClick={() => onUpdateStatus(q.id, 'aprovado_50')}
                             className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer"
-                            title="Aprovar (Registrar 50% Entrada)"
+                            title={
+                              (q.paymentSplits && q.paymentSplits.length === 1) || q.depositPercent === 100
+                                ? 'Registrar Pagamento Total (100%)'
+                                : 'Aprovar (Registrar 50% Entrada)'
+                            }
                           >
                             <DollarSign className="w-4 h-4" />
                           </button>

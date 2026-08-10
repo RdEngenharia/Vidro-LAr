@@ -122,8 +122,17 @@ function MainApp() {
   const handleUpdateQuoteStatus = async (quoteId: string, newStatus: Quote['status']) => {
     const existing = quotes.find((q) => q.id === quoteId);
     if (existing) {
+      // Uma Divisão de Pagamento com UMA ÚNICA forma (ex: 100% à vista no PIX, 100%
+      // no cartão, permuta única) significa que o pagamento é feito de uma vez só —
+      // não existe "entrada" separada de "saldo". O mesmo vale para orçamentos antigos
+      // que usam o campo legado depositPercent = 100. Nesses casos, confirmar o
+      // recebimento quita entrada E saldo juntos, no mesmo clique.
+      const isSinglePaymentSplit = !!(existing.paymentSplits && existing.paymentSplits.length === 1);
+      const isFullCashLegacy = !existing.paymentSplits?.length && existing.depositPercent === 100;
+      const isFullUpfrontPayment = isSinglePaymentSplit || isFullCashLegacy;
+
       const isDepositPaid = newStatus !== 'gerado';
-      const isRemainingPaid = newStatus === 'concluido';
+      const isRemainingPaid = newStatus === 'concluido' || (isDepositPaid && isFullUpfrontPayment);
 
       const updated: Quote = {
         ...existing,
@@ -131,6 +140,7 @@ function MainApp() {
         depositPaid: isDepositPaid,
         depositDate: isDepositPaid ? (existing.depositDate || new Date().toISOString()) : undefined,
         remainingPaid: isRemainingPaid,
+        remainingAmount: isFullUpfrontPayment && isDepositPaid ? 0 : existing.remainingAmount,
         completionDate: isRemainingPaid ? (existing.completionDate || new Date().toISOString()) : undefined,
         updatedAt: new Date().toISOString(),
       };
