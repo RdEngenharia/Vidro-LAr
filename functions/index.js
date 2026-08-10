@@ -15,13 +15,19 @@
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { defineSecret } = require('firebase-functions/params');
 const admin = require('firebase-admin');
+const { getFirestore } = require('firebase-admin/firestore');
 const { getProvider, PROVIDERS } = require('./providers');
 const { encrypt, decrypt } = require('./crypto-helper');
 
 const BOLETO_VAULT_KEY = defineSecret('BOLETO_VAULT_KEY');
 
-admin.initializeApp();
-const db = admin.firestore();
+const app = admin.initializeApp();
+// IMPORTANTE: aponta explicitamente para o banco de dados chamado "default" —
+// mesmo ajuste que já fizemos no app web (src/lib/firebase.ts). O Firestore
+// deste projeto foi criado com esse nome, em vez do banco reservado especial
+// que o SDK usa quando nenhum nome é informado. Sem isso, toda chamada ao
+// Firestore aqui falhava com "5 NOT_FOUND" (visível nos logs das functions).
+const db = getFirestore(app, 'default');
 
 function requireAuth(request) {
   if (!request.auth || !request.auth.uid) {
@@ -77,9 +83,21 @@ exports.saveBoletoCredentials = onCall({ secrets: [BOLETO_VAULT_KEY] }, async (r
     throw new HttpsError('invalid-argument', 'Informe o Client ID e o Client Secret fornecidos pelo banco.');
   }
 
-  const clientSecretEnc = clientSecret?.trim()
-    ? encrypt(clientSecret.trim())
-    : finalClientSecret; // já estava cifrado, não recifra de novo
+  // IMPORTANTE: erros de criptografia (ex: BOLETO_VAULT_KEY não configurada ou
+  // sem permissão de acesso) ficavam mascarados como um "INTERNAL" genérico —
+  // o Firebase esconde a mensagem real de erros tipo "internal" por segurança,
+  // então precisamos capturar aqui e relançar com um código que mostra o motivo.
+  let clientSecretEnc;
+  try {
+    clientSecretEnc = clientSecret?.trim()
+      ? encrypt(clientSecret.trim())
+      : finalClientSecret; // já estava cifrado, não recifra de novo
+  } catch (err) {
+    throw new HttpsError(
+      'failed-precondition',
+      `Erro ao cifrar as credenciais: ${err.message}. Verifique se a secret BOLETO_VAULT_KEY foi configurada e publicada corretamente.`
+    );
+  }
 
   await db.collection('boletoVaults').doc(tenantId).set({
     provider,
@@ -167,11 +185,21 @@ exports.issueBoleto = onCall({ secrets: [BOLETO_VAULT_KEY] }, async (request) =>
 
   // Descriptografa o segredo só neste instante, em memória, pelo tempo mínimo
   // necessário para repassar ao banco — nunca é logado nem devolvido ao cliente.
+  let decryptedSecret;
+  try {
+    decryptedSecret = decrypt(vault.clientSecretEnc);
+  } catch (err) {
+    throw new HttpsError(
+      'failed-precondition',
+      `Erro ao decifrar as credenciais salvas: ${err.message}. Verifique se a secret BOLETO_VAULT_KEY foi configurada corretamente.`
+    );
+  }
+
   const credentials = {
     provider: vault.provider,
     ambiente: vault.ambiente,
     clientId: vault.clientId,
-    clientSecret: decrypt(vault.clientSecretEnc),
+    clientSecret: decryptedSecret,
     conta: vault.conta,
   };
 
