@@ -41,7 +41,9 @@ class ConnectivityMonitor {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 2500);
 
-      const res = await fetch(`/favicon.ico?_t=${Date.now()}`, {
+      // Usa a raiz do próprio site (sempre existe, servida pela Vercel) em vez de
+      // /favicon.ico — evita gerar um 404 "fantasma" no console a cada verificação.
+      const res = await fetch(`/?_conncheck=${Date.now()}`, {
         method: 'HEAD',
         cache: 'no-store',
         signal: controller.signal,
