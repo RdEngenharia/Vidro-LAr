@@ -29,21 +29,76 @@ export const CompanySettingsView: React.FC<CompanySettingsProps> = ({
   const [termsText, setTermsText] = useState(settings?.termsText || 'Proposta válida por 15 dias, ou até reajuste anunciado pelas tempêras.');
 
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
-  // Handle Logo Upload via file reader
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
+  // Redimensiona e comprime a imagem antes de transformar em Base64. O Firestore
+  // recusa documentos com mais de 1 MB no total — uma foto de celular sem
+  // compressão facilmente ultrapassa isso sozinha, fazendo o salvamento falhar
+  // silenciosamente (a logo "sumia" ao recarregar porque nunca foi salva de
+  // verdade). Limitar a logo a ~300px de largura deixa ela com poucos KB,
+  // suficiente pra qualidade de cabeçalho de PDF, com folga enorme no limite.
+  const compressImage = (file: File, maxWidth = 320, quality = 0.82): Promise<string> => {
+    return new Promise((resolve, reject) => {
       const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Não foi possível ler o arquivo de imagem.'));
       reader.onloadend = () => {
-        setLogoUrl(reader.result as string);
+        const img = new Image();
+        img.onerror = () => reject(new Error('Arquivo de imagem inválido ou corrompido.'));
+        img.onload = () => {
+          const scale = Math.min(1, maxWidth / img.width);
+          const targetWidth = Math.round(img.width * scale);
+          const targetHeight = Math.round(img.height * scale);
+
+          const canvas = document.createElement('canvas');
+          canvas.width = targetWidth;
+          canvas.height = targetHeight;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            reject(new Error('Não foi possível processar a imagem neste navegador.'));
+            return;
+          }
+          ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.src = reader.result as string;
       };
       reader.readAsDataURL(file);
+    });
+  };
+
+  // Handle Logo Upload via file reader (com compressão automática)
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setSaveError('');
+    setIsUploadingLogo(true);
+    try {
+      const compressed = await compressImage(file);
+      // Folga de segurança: se mesmo comprimida a imagem ficar grande demais
+      // (ex: foto extremamente larga), avisa em vez de deixar salvar silenciosamente.
+      const approxBytes = Math.ceil((compressed.length * 3) / 4);
+      if (approxBytes > 700_000) {
+        setSaveError('Essa imagem ainda ficou grande demais mesmo após compactar. Tente uma foto mais simples ou um logo já em formato PNG/JPG leve.');
+        setIsUploadingLogo(false);
+        return;
+      }
+      setLogoUrl(compressed);
+    } catch (err: any) {
+      setSaveError(err?.message || 'Erro ao processar a imagem da logo.');
+    } finally {
+      setIsUploadingLogo(false);
+      e.target.value = '';
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSaveError('');
+    setSavedSuccess(false);
+
     const updated: CompanySettings = {
       tenantId,
       companyName,
@@ -60,9 +115,23 @@ export const CompanySettingsView: React.FC<CompanySettingsProps> = ({
       termsText,
     };
 
-    await onSave(updated);
-    setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 3000);
+    setIsSaving(true);
+    try {
+      await onSave(updated);
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 3000);
+    } catch (err: any) {
+      // Antes, um erro aqui (ex: documento grande demais no Firestore) ficava
+      // silencioso — a tela não avisava nada, e os dados pareciam salvos até a
+      // pessoa recarregar a página e ver que sumiram. Agora sempre aparece um aviso.
+      setSaveError(
+        err?.message?.includes('longer than')
+          ? 'Não foi possível salvar: a logo ficou grande demais para o banco de dados. Tente uma imagem menor.'
+          : `Erro ao salvar as configurações: ${err?.message || 'tente novamente.'}`
+      );
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -82,12 +151,20 @@ export const CompanySettingsView: React.FC<CompanySettingsProps> = ({
 
         <button
           type="submit"
-          className="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
+          disabled={isSaving}
+          className="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
         >
           <Save className="w-4 h-4 text-blue-400" />
-          <span>Salvar Alterações</span>
+          <span>{isSaving ? 'Salvando...' : 'Salvar Alterações'}</span>
         </button>
       </div>
+
+      {saveError && (
+        <div className="bg-rose-50 border border-rose-200 text-rose-800 p-4 rounded-xl text-xs font-bold flex items-center gap-2">
+          <Info className="w-4 h-4 text-rose-600 shrink-0" />
+          <span>{saveError}</span>
+        </div>
+      )}
 
       {savedSuccess && (
         <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-xl text-xs font-bold flex items-center gap-2">
@@ -107,7 +184,12 @@ export const CompanySettingsView: React.FC<CompanySettingsProps> = ({
 
           <div className="space-y-3">
             <div className="border-2 border-dashed border-slate-200 p-4 rounded-xl text-center bg-slate-50 flex flex-col items-center justify-center">
-              {logoUrl ? (
+              {isUploadingLogo ? (
+                <div className="space-y-2 py-2">
+                  <div className="w-6 h-6 border-2 border-slate-300 border-t-slate-900 rounded-full animate-spin mx-auto" />
+                  <p className="text-xs text-slate-500 font-semibold">Otimizando imagem...</p>
+                </div>
+              ) : logoUrl ? (
                 <div className="space-y-2">
                   <img src={logoUrl} alt="Logo Vidraçaria" className="max-h-24 max-w-full object-contain mx-auto" />
                   <button
@@ -133,7 +215,8 @@ export const CompanySettingsView: React.FC<CompanySettingsProps> = ({
                 type="file"
                 accept="image/*"
                 onChange={handleLogoUpload}
-                className="w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-slate-900 file:text-white hover:file:bg-slate-800 cursor-pointer"
+                disabled={isUploadingLogo}
+                className="w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-slate-900 file:text-white hover:file:bg-slate-800 cursor-pointer disabled:opacity-60"
               />
             </div>
 
