@@ -84,6 +84,7 @@ export const EmitirBoletos: React.FC<EmitirBoletosProps> = ({
     return d.toISOString().slice(0, 10);
   });
   const [description, setDescription] = useState('');
+  const [isDescriptionManual, setIsDescriptionManual] = useState(false);
   const [isIssuing, setIsIssuing] = useState(false);
   const [issueError, setIssueError] = useState('');
   const [lastResult, setLastResult] = useState<Awaited<ReturnType<typeof issueBoleto>> | null>(null);
@@ -234,11 +235,30 @@ export const EmitirBoletos: React.FC<EmitirBoletosProps> = ({
     return opt ? opt.value : 0;
   }, [amountOption, amountOptions, customAmount]);
 
+  // Monta uma descrição legível a partir dos itens reais do orçamento (ex:
+  // "1x Vidro Temperado Incolor (1,000m x 1,000m); 2x Box de Banheiro") em vez
+  // de deixar só "Orçamento #1002" — isso é o que aparece pro cliente no
+  // campo de instruções do boleto.
+  const buildQuoteDescription = (quote: Quote): string => {
+    if (!quote.items || quote.items.length === 0) return `Orçamento #${quote.codeNumber}`;
+    const parts = quote.items.slice(0, 3).map((item) => {
+      const dims = item.heightM && item.widthM ? ` (${item.heightM.toFixed(2)}m x ${item.widthM.toFixed(2)}m)` : '';
+      return `${item.quantity}x ${item.productName}${dims}`;
+    });
+    const suffix = quote.items.length > 3 ? ` e mais ${quote.items.length - 3} item(ns)` : '';
+    return `${parts.join('; ')}${suffix} — Orçamento #${quote.codeNumber}`;
+  };
+
   // Reset da opção de valor sempre que troca de orçamento (evita levar "saldo"
-  // de um orçamento pro outro sem querer)
+  // de um orçamento pro outro sem querer). Também preenche a descrição
+  // automaticamente com os itens do orçamento — mas só se a pessoa ainda não
+  // tiver digitado nada manualmente, pra nunca sobrescrever uma edição sua.
   useEffect(() => {
     setAmountOption('total');
     setCustomAmount(selectedQuote?.totalAmount || 0);
+    if (!isDescriptionManual) {
+      setDescription(selectedQuote ? buildQuoteDescription(selectedQuote) : '');
+    }
   }, [selectedQuoteId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSaveVault = async (e: React.FormEvent) => {
@@ -555,6 +575,8 @@ export const EmitirBoletos: React.FC<EmitirBoletosProps> = ({
                 onChange={(e) => {
                   setSelectedCustomerId(e.target.value);
                   setSelectedQuoteId('');
+                  setIsDescriptionManual(false);
+                  setDescription('');
                 }}
                 className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-hidden focus:ring-2 focus:ring-slate-900"
               >
@@ -654,14 +676,22 @@ export const EmitirBoletos: React.FC<EmitirBoletosProps> = ({
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Descrição (opcional)</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Descrição</label>
               <input
                 type="text"
                 value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder={selectedQuote ? `Orçamento #${selectedQuote.codeNumber}` : 'Ex: Instalação de vidros'}
+                onChange={(e) => {
+                  setDescription(e.target.value);
+                  setIsDescriptionManual(true);
+                }}
+                placeholder="Ex: Instalação de vidros"
                 className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-hidden focus:ring-2 focus:ring-slate-900"
               />
+              {selectedQuote && (
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Preenchido automaticamente com os itens do orçamento — edite se quiser personalizar.
+                </p>
+              )}
             </div>
           </div>
 
