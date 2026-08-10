@@ -39,7 +39,7 @@ export const CompanySettingsView: React.FC<CompanySettingsProps> = ({
   // silenciosamente (a logo "sumia" ao recarregar porque nunca foi salva de
   // verdade). Limitar a logo a ~300px de largura deixa ela com poucos KB,
   // suficiente pra qualidade de cabeçalho de PDF, com folga enorme no limite.
-  const compressImage = (file: File, maxWidth = 320, quality = 0.82): Promise<string> => {
+  const compressImage = (file: File, maxWidth = 480, quality = 0.85): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onerror = () => reject(new Error('Não foi possível ler o arquivo de imagem.'));

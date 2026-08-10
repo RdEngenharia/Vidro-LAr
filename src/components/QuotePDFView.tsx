@@ -255,7 +255,7 @@ Ficamos à disposição para agendar sua instalação!`;
                 <img
                   src={companySettings.logoUrl}
                   alt="Logo Vidraçaria"
-                  className="h-12 w-auto object-contain max-w-[150px]"
+                  className="h-[72px] w-auto object-contain max-w-[225px]"
                 />
               ) : (
                 <div className="border-2 border-black px-2.5 py-0.5 font-black tracking-tighter text-xl uppercase" style={{ borderColor: '#000000', color: '#000000' }}>
