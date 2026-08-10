@@ -22,13 +22,13 @@ module.exports = {
   issueBoleto,
   implemented: false,
   label: 'Efí (Gerencianet)',
-  // A Efí usa OAuth2 client_credentials + certificado mTLS (.p12) — não é só
-  // Client ID/Secret como a Efí antiga (Gerencianet legado) ou outros bancos
-  // sem certificado.
+  // A API de Cobranças da Efí (Boleto/Carnê/Cartão) é uma exceção dentro do
+  // ecossistema deles: diferente do Pix, ela usa só OAuth2 client_credentials
+  // (Client ID + Client Secret via Basic Auth), SEM certificado mTLS.
+  // Confirmado na documentação oficial: https://github.com/efipay/sdk-php-apis-efi
+  // ("Com exceção da API Cobranças... é obrigatório informar certificado").
   credentialFields: [
     { id: 'clientId', label: 'Client ID', type: 'text' },
     { id: 'clientSecret', label: 'Client Secret', type: 'password' },
-    { id: 'certificateBase64', label: 'Certificado (.p12)', type: 'file', accept: '.p12,.pfx' },
-    { id: 'certificatePassword', label: 'Senha do certificado (se houver)', type: 'password', optional: true },
   ],
 };

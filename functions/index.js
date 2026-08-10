@@ -64,8 +64,7 @@ exports.getBoletoProviders = onCall(async () => {
 // função, com privilégio de administrador, consegue tocar nele.
 exports.saveBoletoCredentials = onCall({ secrets: [BOLETO_VAULT_KEY] }, async (request) => {
   const tenantId = requireAuth(request);
-  const { provider, ambiente, clientId, apiKey, clientSecret, certificateBase64, certificatePassword } =
-    request.data || {};
+  const { provider, ambiente } = request.data || {};
 
   if (!provider || typeof provider !== 'string') {
     throw new HttpsError('invalid-argument', 'Informe qual provedor/banco está configurando.');
@@ -91,35 +90,34 @@ exports.saveBoletoCredentials = onCall({ secrets: [BOLETO_VAULT_KEY] }, async (r
     }
   }
 
-  let newSecrets = {};
+  // IMPORTANTE: os campos exigidos vêm de `providerMod.credentialFields` (ver
+  // cada arquivo em /providers), NÃO de uma suposição fixa aqui. Isso evita
+  // pedir coisa que um banco não precisa (ex: a API de Cobranças da Efí não
+  // exige certificado, diferente do Pix dela ou do Banco Inter) — cada banco
+  // declara exatamente o que precisa, e essa função só segue a receita.
+  const fields = providerMod.credentialFields || [];
+  const newSecrets = {};
   let finalClientId = null;
 
-  if (provider === 'simulado') {
-    // Nenhuma credencial real necessária.
-  } else if (provider === 'asaas') {
-    const finalApiKey = apiKey?.trim() || existingSecrets.apiKey || '';
-    if (!finalApiKey) {
-      throw new HttpsError('invalid-argument', 'Informe a Chave de API (API Key) do Asaas.');
-    }
-    newSecrets = { apiKey: finalApiKey };
-  } else {
-    // Efí, Inter e qualquer futuro provedor no mesmo formato: Client ID +
-    // Client Secret + certificado digital.
-    finalClientId = clientId?.trim() || (isSameProvider ? existing.clientId : '') || '';
-    const finalClientSecret = clientSecret?.trim() || existingSecrets.clientSecret || '';
-    const finalCertificate = certificateBase64 || existingSecrets.certificateBase64 || '';
+  for (const field of fields) {
+    const incoming = request.data ? request.data[field.id] : undefined;
+    const trimmedIncoming = typeof incoming === 'string' ? incoming.trim() : incoming;
+    const finalValue = trimmedIncoming || existingSecrets[field.id] || '';
 
-    if (!finalClientId || !finalClientSecret || !finalCertificate) {
+    if (!field.optional && !finalValue) {
       throw new HttpsError(
         'invalid-argument',
-        `Informe o Client ID, o Client Secret e o certificado digital fornecidos pelo ${providerMod.label || provider}.`
+        `Informe o campo "${field.label}" para configurar o ${providerMod.label || provider}.`
       );
     }
-    newSecrets = {
-      clientSecret: finalClientSecret,
-      certificateBase64: finalCertificate,
-      certificatePassword: certificatePassword?.trim() || existingSecrets.certificatePassword || '',
-    };
+
+    if (field.id === 'clientId') {
+      // clientId não é segredo (é só um identificador) — fica em texto puro
+      // no documento, fora do blob cifrado, só pra exibição/diagnóstico.
+      finalClientId = finalValue || null;
+    } else {
+      newSecrets[field.id] = finalValue;
+    }
   }
 
   let secretsEnc;
