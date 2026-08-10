@@ -44,6 +44,13 @@ try {
       localCache: persistentLocalCache({
         tabManager: persistentMultipleTabManager(),
       }),
+      // O Firestore, ao contrário do antigo IndexedDB, RECUSA gravar qualquer campo
+      // com valor `undefined` (erro "Unsupported field value: undefined"). Como o
+      // app tem vários campos opcionais (ex: depositDate, notes, cardFeePercent)
+      // que ficam undefined quando não preenchidos, isso quebrava toda gravação de
+      // orçamento. Esta opção faz o Firestore simplesmente ignorar esses campos,
+      // igual o comportamento anterior.
+      ignoreUndefinedProperties: true,
     },
     'default'
   );
