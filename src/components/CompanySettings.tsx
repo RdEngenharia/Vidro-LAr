@@ -59,6 +59,12 @@ export const CompanySettingsView: React.FC<CompanySettingsProps> = ({
             reject(new Error('Não foi possível processar a imagem neste navegador.'));
             return;
           }
+          // IMPORTANTE: preenche o fundo de branco ANTES de desenhar a logo. O
+          // formato JPEG não suporta transparência — sem isso, qualquer área
+          // transparente do PNG original (o que geralmente parece "fundo branco"
+          // na tela) vira preto ao ser achatada pelo canvas.
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, targetWidth, targetHeight);
           ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
           resolve(canvas.toDataURL('image/jpeg', quality));
         };
