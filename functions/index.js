@@ -4,18 +4,21 @@
 // Por que isso precisa existir num servidor, e não só no navegador:
 // Credenciais de banco (Client ID / Client Secret) NUNCA podem chegar ao
 // navegador do usuário — qualquer pessoa com o DevTools aberto conseguiria
-// roubá-las. Essas duas funções guardam e usam essas credenciais só aqui, no
-// servidor, e o app web só conversa com elas por chamadas autenticadas.
+// roubá-las. Essas funções guardam e usam essas credenciais só aqui, no
+// servidor, cifradas em repouso (ver crypto-helper.js), e o app web só
+// conversa com elas por chamadas autenticadas.
 //
 // Isolamento entre usuários (multi-tenant SaaS):
 // Em toda função, o "dono dos dados" é sempre `request.auth.uid` — o UID da
 // sessão de login validada pelo próprio Firebase. Nunca confiamos em um
-// tenantId enviado pelo cliente; se alguém tentar adulterar a requisição pra
-// tentar acessar o cofre de outro usuário, `request.auth.uid` continua sendo
-// o dele mesmo, então ele só alcança os próprios dados.
+// tenantId enviado pelo cliente.
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { defineSecret } = require('firebase-functions/params');
 const admin = require('firebase-admin');
-const { getProvider } = require('./providers');
+const { getProvider, PROVIDERS } = require('./providers');
+const { encrypt, decrypt } = require('./crypto-helper');
+
+const BOLETO_VAULT_KEY = defineSecret('BOLETO_VAULT_KEY');
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -28,46 +31,75 @@ function requireAuth(request) {
 }
 
 // ---------------------------------------------------------------------------
+// getBoletoProviders — lista de bancos que o servidor realmente sabe operar.
+// ---------------------------------------------------------------------------
+// A lista não fica fixa no app web de propósito: se ela morasse lá, um dia
+// ofereceria um banco que o servidor ainda não sabe emitir, e a pessoa só
+// descobriria isso na hora de cobrar o cliente de verdade.
+exports.getBoletoProviders = onCall(async () => {
+  const list = Object.entries(PROVIDERS).map(([id, mod]) => ({
+    id,
+    label: mod.label || id,
+    implemented: !!mod.implemented,
+  }));
+  return { providers: list };
+});
+
+// ---------------------------------------------------------------------------
 // saveBoletoCredentials — grava as credenciais do banco no cofre do tenant.
 // ---------------------------------------------------------------------------
 // O documento em `boletoVaults/{tenantId}` é bloqueado nas regras do Firestore
-// (ninguém lê/escreve direto por lá, nem o próprio dono) — só esta função,
-// rodando com privilégio de administrador, consegue tocar nele. O app web só
-// sabe dizer "está configurado" ou não, nunca vê o segredo de volta.
-exports.saveBoletoCredentials = onCall(async (request) => {
+// (ninguém lê/escreve direto por lá) — só esta função, com privilégio de
+// administrador, consegue tocar nele. O clientSecret é cifrado antes de ser
+// gravado (AES-256-GCM com chave mestra guardada como Secret do Cloud
+// Functions), então nem um acesso administrativo direto ao banco de dados
+// revela a chave em texto puro.
+exports.saveBoletoCredentials = onCall({ secrets: [BOLETO_VAULT_KEY] }, async (request) => {
   const tenantId = requireAuth(request);
-  const { provider, clientId, clientSecret, extra } = request.data || {};
+  const { provider, ambiente, clientId, clientSecret, conta } = request.data || {};
 
   if (!provider || typeof provider !== 'string') {
     throw new HttpsError('invalid-argument', 'Informe qual provedor/banco está configurando.');
   }
-  if (!clientId || !clientSecret) {
-    throw new HttpsError('invalid-argument', 'Informe o Client ID e o Client Secret.');
+
+  const existingSnap = await db.collection('boletoVaults').doc(tenantId).get();
+  const existing = existingSnap.exists ? existingSnap.data() : null;
+  const isSameProvider = existing && existing.provider === provider;
+
+  // Padrão "deixe em branco para manter o atual": se o usuário está atualizando
+  // o MESMO provedor e não digitou um novo Client ID/Secret, mantemos os que
+  // já estavam guardados, em vez de forçar redigitar tudo toda vez que quiser
+  // só trocar o endereço/observações.
+  const finalClientId = clientId?.trim() || (isSameProvider ? existing.clientId : '');
+  const finalClientSecret = clientSecret?.trim() || (isSameProvider ? existing.clientSecretEnc : '');
+
+  if (!finalClientId || !finalClientSecret) {
+    throw new HttpsError('invalid-argument', 'Informe o Client ID e o Client Secret fornecidos pelo banco.');
   }
 
-  await db.collection('boletoVaults').doc(tenantId).set(
-    {
-      provider,
-      clientId,
-      clientSecret,
-      extra: extra || null,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    },
-    { merge: false } // troca tudo — evita misturar credenciais de provedores diferentes
-  );
+  const clientSecretEnc = clientSecret?.trim()
+    ? encrypt(clientSecret.trim())
+    : finalClientSecret; // já estava cifrado, não recifra de novo
+
+  await db.collection('boletoVaults').doc(tenantId).set({
+    provider,
+    ambiente: ambiente === 'homologacao' ? 'homologacao' : 'producao',
+    clientId: finalClientId,
+    clientSecretEnc,
+    conta: conta || null,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    createdAt: existing?.createdAt || admin.firestore.FieldValue.serverTimestamp(),
+  });
 
   // Status "público" (sem segredo nenhum) que o app web PODE ler, só pra saber
-  // se já existe uma configuração e de qual provedor, para exibir na tela.
-  await db
-    .collection('tenants')
-    .doc(tenantId)
-    .collection('boletoConfig')
-    .doc('status')
-    .set({
-      configured: true,
-      provider,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+  // se já existe uma configuração e de qual provedor/ambiente, pra exibir na tela.
+  await db.collection('tenants').doc(tenantId).collection('boletoConfig').doc('status').set({
+    configured: true,
+    provider,
+    ambiente: ambiente === 'homologacao' ? 'homologacao' : 'producao',
+    identificacao: finalClientId.length > 8 ? `${finalClientId.slice(0, 4)}…${finalClientId.slice(-4)}` : finalClientId,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
 
   return { ok: true };
 });
@@ -79,12 +111,11 @@ exports.removeBoletoCredentials = onCall(async (request) => {
   const tenantId = requireAuth(request);
 
   await db.collection('boletoVaults').doc(tenantId).delete();
-  await db
-    .collection('tenants')
-    .doc(tenantId)
-    .collection('boletoConfig')
-    .doc('status')
-    .set({ configured: false, provider: null, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+  await db.collection('tenants').doc(tenantId).collection('boletoConfig').doc('status').set({
+    configured: false,
+    provider: null,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
 
   return { ok: true };
 });
@@ -92,10 +123,19 @@ exports.removeBoletoCredentials = onCall(async (request) => {
 // ---------------------------------------------------------------------------
 // issueBoleto — emite um boleto usando as credenciais guardadas no cofre.
 // ---------------------------------------------------------------------------
-exports.issueBoleto = onCall(async (request) => {
+exports.issueBoleto = onCall({ secrets: [BOLETO_VAULT_KEY] }, async (request) => {
   const tenantId = requireAuth(request);
-  const { customerId, customerName, quoteId, quoteCodeNumber, amount, dueDate, description } =
-    request.data || {};
+  const {
+    customerId,
+    customerName,
+    customerDocument, // CPF/CNPJ do pagador — exigido por boletos registrados
+    customerAddress,  // { logradouro, numero, bairro, cidade, uf, cep }
+    quoteId,
+    quoteCodeNumber,
+    amount,
+    dueDate,
+    description,
+  } = request.data || {};
 
   if (!amount || amount <= 0) {
     throw new HttpsError('invalid-argument', 'Informe um valor válido para o boleto.');
@@ -115,8 +155,25 @@ exports.issueBoleto = onCall(async (request) => {
     );
   }
 
-  const credentials = vaultSnap.data();
-  const provider = getProvider(credentials.provider);
+  const vault = vaultSnap.data();
+  const provider = getProvider(vault.provider);
+
+  if (!provider.implemented) {
+    throw new HttpsError(
+      'failed-precondition',
+      `A integração com ${provider.label || vault.provider} ainda não foi finalizada neste sistema.`
+    );
+  }
+
+  // Descriptografa o segredo só neste instante, em memória, pelo tempo mínimo
+  // necessário para repassar ao banco — nunca é logado nem devolvido ao cliente.
+  const credentials = {
+    provider: vault.provider,
+    ambiente: vault.ambiente,
+    clientId: vault.clientId,
+    clientSecret: decrypt(vault.clientSecretEnc),
+    conta: vault.conta,
+  };
 
   let result;
   try {
@@ -124,6 +181,8 @@ exports.issueBoleto = onCall(async (request) => {
       amount,
       dueDate,
       payerName: customerName,
+      payerDocument: customerDocument || null,
+      payerAddress: customerAddress || null,
       description: description || `Orçamento #${quoteCodeNumber || ''}`.trim(),
     });
   } catch (err) {
@@ -142,7 +201,8 @@ exports.issueBoleto = onCall(async (request) => {
     amount,
     dueDate,
     description: description || null,
-    provider: credentials.provider,
+    provider: vault.provider,
+    ambiente: vault.ambiente,
     simulated: !!result.simulated,
     status: result.status,
     barcode: result.barcode || null,
@@ -150,12 +210,7 @@ exports.issueBoleto = onCall(async (request) => {
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
   };
 
-  await db
-    .collection('tenants')
-    .doc(tenantId)
-    .collection('boletos')
-    .doc(result.boletoId)
-    .set(boletoRecord);
+  await db.collection('tenants').doc(tenantId).collection('boletos').doc(result.boletoId).set(boletoRecord);
 
   return { ok: true, ...result };
 });

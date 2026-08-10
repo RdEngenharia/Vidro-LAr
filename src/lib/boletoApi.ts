@@ -20,6 +20,8 @@ function requireFunctions() {
 export interface BoletoConfigStatus {
   configured: boolean;
   provider: BoletoProvider | null;
+  ambiente?: 'producao' | 'homologacao';
+  identificacao?: string;
 }
 
 // Lê só o status público (sem segredo nenhum) de configuração do cofre —
@@ -31,14 +33,25 @@ export async function getBoletoConfigStatus(tenantId: string): Promise<BoletoCon
   const snap = await getDoc(doc(firebaseDb, 'tenants', tenantId, 'boletoConfig', 'status'));
   if (!snap.exists()) return { configured: false, provider: null };
   const data = snap.data() as any;
-  return { configured: !!data.configured, provider: data.provider || null };
+  return {
+    configured: !!data.configured,
+    provider: data.provider || null,
+    ambiente: data.ambiente || 'producao',
+    identificacao: data.identificacao || '',
+  };
+}
+
+export async function getBoletoProviders(): Promise<Array<{ id: BoletoProvider; label: string; implemented: boolean }>> {
+  const fn = httpsCallable(requireFunctions(), 'getBoletoProviders');
+  const res = await fn({});
+  return (res.data as any).providers || [];
 }
 
 export async function saveBoletoCredentials(params: {
   provider: BoletoProvider;
+  ambiente: 'producao' | 'homologacao';
   clientId: string;
   clientSecret: string;
-  extra?: Record<string, string>;
 }): Promise<void> {
   const fn = httpsCallable(requireFunctions(), 'saveBoletoCredentials');
   await fn(params);
@@ -52,6 +65,15 @@ export async function removeBoletoCredentials(): Promise<void> {
 export interface IssueBoletoParams {
   customerId?: string;
   customerName: string;
+  customerDocument?: string; // CPF/CNPJ do pagador
+  customerAddress?: {
+    logradouro: string;
+    numero?: string;
+    bairro?: string;
+    cidade: string;
+    uf: string;
+    cep?: string;
+  };
   quoteId?: string;
   quoteCodeNumber?: number;
   amount: number;

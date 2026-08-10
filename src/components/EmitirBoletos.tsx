@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Customer, Quote, Boleto, BoletoProvider } from '../types';
 import {
   getBoletoConfigStatus,
+  getBoletoProviders,
   saveBoletoCredentials,
   removeBoletoCredentials,
   issueBoleto,
@@ -19,6 +20,7 @@ import {
   AlertTriangle,
   Loader2,
   Download,
+  Info,
 } from 'lucide-react';
 
 interface EmitirBoletosProps {
@@ -30,13 +32,6 @@ interface EmitirBoletosProps {
   onClearPrefill?: () => void;
 }
 
-const PROVIDER_LABELS: Record<BoletoProvider, string> = {
-  simulado: 'Modo Teste (Simulado)',
-  efi: 'Efí (Gerencianet)',
-  inter: 'Banco Inter',
-  asaas: 'Asaas',
-};
-
 export const EmitirBoletos: React.FC<EmitirBoletosProps> = ({
   tenantId,
   customers,
@@ -44,12 +39,20 @@ export const EmitirBoletos: React.FC<EmitirBoletosProps> = ({
   prefill,
   onClearPrefill,
 }) => {
+  // Lista de bancos — vem do servidor, não é mais fixa aqui. Se um banco ainda
+  // não tem a integração pronta, a tela mostra isso claramente em vez de deixar
+  // a pessoa descobrir só na hora de cobrar o cliente de verdade.
+  const [providers, setProviders] = useState<Array<{ id: BoletoProvider; label: string; implemented: boolean }>>([]);
+
   // Cofre / configuração
   const [configLoading, setConfigLoading] = useState(true);
   const [configured, setConfigured] = useState(false);
   const [configuredProvider, setConfiguredProvider] = useState<BoletoProvider | null>(null);
+  const [configuredAmbiente, setConfiguredAmbiente] = useState<'producao' | 'homologacao'>('producao');
+  const [configuredIdentificacao, setConfiguredIdentificacao] = useState('');
   const [isVaultOpen, setIsVaultOpen] = useState(false);
   const [vaultProvider, setVaultProvider] = useState<BoletoProvider>('simulado');
+  const [vaultAmbiente, setVaultAmbiente] = useState<'producao' | 'homologacao'>('producao');
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
   const [isSavingVault, setIsSavingVault] = useState(false);
@@ -76,13 +79,36 @@ export const EmitirBoletos: React.FC<EmitirBoletosProps> = ({
   const [history, setHistory] = useState<Boleto[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
 
+  const loadProviders = async () => {
+    try {
+      const list = await getBoletoProviders();
+      setProviders(list);
+      if (list.length > 0 && !list.some((p) => p.id === vaultProvider)) {
+        setVaultProvider(list[0].id);
+      }
+    } catch {
+      // Se as Cloud Functions ainda não foram publicadas, mostramos isso mais
+      // abaixo (vaultError ao tentar salvar) em vez de travar a tela toda aqui.
+      setProviders([{ id: 'simulado', label: 'Modo Teste (Simulado)', implemented: true }]);
+    }
+  };
+
+  const providerLabel = (id: BoletoProvider | null) => {
+    if (!id) return '';
+    return providers.find((p) => p.id === id)?.label || id;
+  };
+
   const loadConfigStatus = async () => {
     setConfigLoading(true);
     try {
       const status = await getBoletoConfigStatus(tenantId);
       setConfigured(status.configured);
       setConfiguredProvider(status.provider);
+      setConfiguredAmbiente(status.ambiente || 'producao');
+      setConfiguredIdentificacao(status.identificacao || '');
       setIsVaultOpen(!status.configured);
+      if (status.provider) setVaultProvider(status.provider);
+      if (status.ambiente) setVaultAmbiente(status.ambiente);
     } catch {
       setConfigured(false);
     } finally {
@@ -103,6 +129,7 @@ export const EmitirBoletos: React.FC<EmitirBoletosProps> = ({
   };
 
   useEffect(() => {
+    loadProviders();
     loadConfigStatus();
     loadHistory();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -175,7 +202,12 @@ export const EmitirBoletos: React.FC<EmitirBoletosProps> = ({
     setVaultError('');
     setVaultSuccess('');
 
-    if (vaultProvider !== 'simulado' && (!clientId.trim() || !clientSecret.trim())) {
+    // Padrão "deixe em branco para manter o atual": só exige preencher as
+    // credenciais se for a primeira vez, ou se estiver trocando de provedor.
+    const isUpdatingSameProvider = configured && configuredProvider === vaultProvider;
+    const isSimulado = vaultProvider === 'simulado';
+
+    if (!isSimulado && !isUpdatingSameProvider && (!clientId.trim() || !clientSecret.trim())) {
       setVaultError('Informe o Client ID e o Client Secret fornecidos pelo banco.');
       return;
     }
@@ -184,10 +216,13 @@ export const EmitirBoletos: React.FC<EmitirBoletosProps> = ({
     try {
       await saveBoletoCredentials({
         provider: vaultProvider,
-        clientId: clientId.trim() || 'simulado',
-        clientSecret: clientSecret.trim() || 'simulado',
+        ambiente: vaultAmbiente,
+        clientId: clientId.trim() || (isSimulado ? 'simulado' : ''),
+        clientSecret: clientSecret.trim() || (isSimulado ? 'simulado' : ''),
       });
       setVaultSuccess('Cofre configurado com sucesso!');
+      // Limpa os segredos da tela assim que saem daqui — nunca ficam visíveis
+      // de novo, nem para quem acabou de digitá-los.
       setClientId('');
       setClientSecret('');
       await loadConfigStatus();
@@ -223,11 +258,28 @@ export const EmitirBoletos: React.FC<EmitirBoletosProps> = ({
       return;
     }
 
+    // Boletos registrados no Banco Central exigem CPF/CNPJ e endereço do
+    // pagador. Sem CPF/CNPJ cadastrado, ainda deixamos emitir no modo
+    // simulado/teste, mas avisamos — em produção, o banco vai recusar.
+    if (configuredProvider !== 'simulado' && !customer.cpfCnpj) {
+      setIssueError(
+        `O cliente "${customer.name}" não tem CPF/CNPJ cadastrado. A maioria dos bancos exige isso para registrar o boleto — edite o cadastro do cliente antes de emitir.`
+      );
+      return;
+    }
+
+    // Aproveita endereço + "Cidade - UF" já cadastrados no cliente
+    const [cidade, uf] = (customer.cityState || '').split('-').map((s) => s.trim());
+
     setIsIssuing(true);
     try {
       const result = await issueBoleto({
         customerId: customer.id,
         customerName: customer.name,
+        customerDocument: customer.cpfCnpj || undefined,
+        customerAddress: customer.address
+          ? { logradouro: customer.address, cidade: cidade || '', uf: uf || '' }
+          : undefined,
         quoteId: selectedQuote?.id,
         quoteCodeNumber: selectedQuote?.codeNumber,
         amount: finalAmount,
@@ -281,7 +333,9 @@ export const EmitirBoletos: React.FC<EmitirBoletosProps> = ({
                 {configLoading
                   ? 'Verificando...'
                   : configured
-                  ? `Configurado — ${PROVIDER_LABELS[configuredProvider || 'simulado']}`
+                  ? `Configurado — ${providerLabel(configuredProvider)} · ${
+                      configuredAmbiente === 'homologacao' ? 'Homologação (teste)' : 'Produção'
+                    }${configuredIdentificacao ? ` · ${configuredIdentificacao}` : ''}`
                   : 'Nenhuma credencial configurada ainda'}
               </p>
             </div>
@@ -294,7 +348,7 @@ export const EmitirBoletos: React.FC<EmitirBoletosProps> = ({
             <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-[11px] text-blue-800 flex items-start gap-2">
               <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5" />
               <span>
-                Suas credenciais são guardadas num cofre isolado, acessível apenas pela sua conta — nem
+                Suas credenciais são cifradas e guardadas num cofre isolado, acessível apenas pela sua conta — nem
                 administradores do sistema conseguem lê-las de volta pela tela. Só usamos "Modo Teste (Simulado)"?
                 Você pode gerar boletos de exemplo sem precisar de credenciais reais, ideal para testar o fluxo antes
                 de configurar seu banco de verdade.
@@ -309,24 +363,44 @@ export const EmitirBoletos: React.FC<EmitirBoletosProps> = ({
                   onChange={(e) => setVaultProvider(e.target.value as BoletoProvider)}
                   className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-slate-900"
                 >
-                  <option value="simulado">Modo Teste (Simulado) — sem credenciais reais</option>
-                  <option value="asaas">Asaas</option>
-                  <option value="efi">Efí (Gerencianet)</option>
-                  <option value="inter">Banco Inter</option>
+                  {providers.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.label}
+                      {!p.implemented ? ' — ainda não emite' : ''}
+                    </option>
+                  ))}
                 </select>
               </div>
 
               {vaultProvider !== 'simulado' && (
                 <>
-                  <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-800 flex items-start gap-1.5">
-                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                    <span>
-                      A integração com {PROVIDER_LABELS[vaultProvider]} ainda precisa ser finalizada no servidor
-                      (veja <code className="bg-amber-100 px-1 rounded">functions/providers/{vaultProvider}.js</code>).
-                      Você já pode salvar suas credenciais aqui, mas a emissão só funcionará de verdade depois disso
-                      ser implementado.
-                    </span>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Ambiente</label>
+                    <select
+                      value={vaultAmbiente}
+                      onChange={(e) => setVaultAmbiente(e.target.value as 'producao' | 'homologacao')}
+                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-slate-900"
+                    >
+                      <option value="producao">Produção — cobra de verdade</option>
+                      <option value="homologacao">Homologação — só para testar</option>
+                    </select>
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      As chaves de teste não funcionam em produção, e vice-versa. Use o par que o banco entregou para
+                      o ambiente escolhido aqui.
+                    </p>
                   </div>
+
+                  {!providers.find((p) => p.id === vaultProvider)?.implemented && (
+                    <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-800 flex items-start gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                      <span>
+                        A integração com {providerLabel(vaultProvider)} ainda precisa ser finalizada no servidor
+                        (veja <code className="bg-amber-100 px-1 rounded">functions/providers/{vaultProvider}.js</code>).
+                        Você já pode salvar suas credenciais aqui, mas a emissão só funcionará de verdade depois disso
+                        ser implementado.
+                      </span>
+                    </div>
+                  )}
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">Client ID</label>
                     <input
@@ -334,7 +408,11 @@ export const EmitirBoletos: React.FC<EmitirBoletosProps> = ({
                       value={clientId}
                       onChange={(e) => setClientId(e.target.value)}
                       className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-hidden focus:ring-2 focus:ring-slate-900"
-                      placeholder="Client ID fornecido pelo banco"
+                      placeholder={
+                        configured && configuredProvider === vaultProvider
+                          ? 'Deixe em branco para manter o atual'
+                          : 'Client ID fornecido pelo banco'
+                      }
                     />
                   </div>
                   <div>
@@ -344,7 +422,12 @@ export const EmitirBoletos: React.FC<EmitirBoletosProps> = ({
                       value={clientSecret}
                       onChange={(e) => setClientSecret(e.target.value)}
                       className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-hidden focus:ring-2 focus:ring-slate-900"
-                      placeholder="Client Secret fornecido pelo banco"
+                      placeholder={
+                        configured && configuredProvider === vaultProvider
+                          ? 'Deixe em branco para manter o atual — nunca é mostrado de novo'
+                          : 'Client Secret fornecido pelo banco'
+                      }
+                      autoComplete="new-password"
                     />
                   </div>
                 </>
@@ -404,10 +487,16 @@ export const EmitirBoletos: React.FC<EmitirBoletosProps> = ({
                 <option value="">Selecione um cliente...</option>
                 {customers.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.name}
+                    {c.name}{!c.cpfCnpj ? ' (sem CPF/CNPJ)' : ''}
                   </option>
                 ))}
               </select>
+              {selectedCustomerId && configuredProvider !== 'simulado' && !customers.find((c) => c.id === selectedCustomerId)?.cpfCnpj && (
+                <p className="text-[10px] text-amber-700 mt-1 flex items-start gap-1">
+                  <Info className="w-3 h-3 shrink-0 mt-0.5" />
+                  Este cliente não tem CPF/CNPJ cadastrado — a maioria dos bancos exige isso para registrar o boleto.
+                </p>
+              )}
             </div>
 
             <div>
@@ -577,7 +666,7 @@ export const EmitirBoletos: React.FC<EmitirBoletosProps> = ({
                     {b.quoteCodeNumber ? ` — Orçamento #${b.quoteCodeNumber}` : ''}
                   </p>
                   <p className="text-[11px] text-slate-500">
-                    Vencimento: {new Date(b.dueDate + 'T00:00:00').toLocaleDateString('pt-BR')} · {PROVIDER_LABELS[b.provider]}
+                    Vencimento: {new Date(b.dueDate + 'T00:00:00').toLocaleDateString('pt-BR')} · {providerLabel(b.provider)}
                     {b.simulated && ' · TESTE'}
                   </p>
                 </div>

@@ -29,4 +29,4 @@ async function issueBoleto(_credentials, boletoData) {
   };
 }
 
-module.exports = { issueBoleto };
+module.exports = { issueBoleto, implemented: true, label: 'Modo Teste (Simulado)' };

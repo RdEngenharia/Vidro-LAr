@@ -18,4 +18,4 @@ async function issueBoleto(_credentials, _boletoData) {
   );
 }
 
-module.exports = { issueBoleto };
+module.exports = { issueBoleto, implemented: false, label: 'Efí (Gerencianet)' };
