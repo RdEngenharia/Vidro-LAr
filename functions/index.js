@@ -21,13 +21,26 @@ const { encrypt, decrypt } = require('./crypto-helper');
 
 const BOLETO_VAULT_KEY = defineSecret('BOLETO_VAULT_KEY');
 
-const app = admin.initializeApp();
-// IMPORTANTE: aponta explicitamente para o banco de dados chamado "default" —
-// mesmo ajuste que já fizemos no app web (src/lib/firebase.ts). O Firestore
-// deste projeto foi criado com esse nome, em vez do banco reservado especial
-// que o SDK usa quando nenhum nome é informado. Sem isso, toda chamada ao
-// Firestore aqui falhava com "5 NOT_FOUND" (visível nos logs das functions).
-const db = getFirestore(app, 'default');
+// IMPORTANTE: a conexão com o Firestore é criada de forma "preguiçosa" (só na
+// primeira vez que uma função realmente roda), não aqui no topo do arquivo.
+// Fazer isso no topo trava o comando `firebase deploy` — durante o deploy, o
+// Firebase carrega este arquivo só para descobrir quais funções existem, sem
+// rodar nenhuma de verdade, e se essa etapa tentar abrir conexão com o banco
+// nesse momento, ela pode travar esperando uma resposta que nunca chega
+// (erro "Cannot determine backend specification. Timeout after 10000").
+let _app;
+let _db;
+function getDb() {
+  if (!_db) {
+    if (!_app) _app = admin.initializeApp();
+    // Aponta explicitamente para o banco de dados chamado "default" — mesmo
+    // ajuste que já fizemos no app web (src/lib/firebase.ts). O Firestore
+    // deste projeto foi criado com esse nome, em vez do banco reservado
+    // especial que o SDK usa quando nenhum nome é informado.
+    _db = getFirestore(_app, 'default');
+  }
+  return _db;
+}
 
 function requireAuth(request) {
   if (!request.auth || !request.auth.uid) {
@@ -72,7 +85,7 @@ exports.saveBoletoCredentials = onCall({ secrets: [BOLETO_VAULT_KEY] }, async (r
 
   const providerMod = getProvider(provider);
 
-  const existingSnap = await db.collection('boletoVaults').doc(tenantId).get();
+  const existingSnap = await getDb().collection('boletoVaults').doc(tenantId).get();
   const existing = existingSnap.exists ? existingSnap.data() : null;
   const isSameProvider = existing && existing.provider === provider;
 
@@ -130,7 +143,7 @@ exports.saveBoletoCredentials = onCall({ secrets: [BOLETO_VAULT_KEY] }, async (r
     );
   }
 
-  await db.collection('boletoVaults').doc(tenantId).set({
+  await getDb().collection('boletoVaults').doc(tenantId).set({
     provider,
     ambiente: ambiente === 'homologacao' ? 'homologacao' : 'producao',
     clientId: finalClientId,
@@ -142,7 +155,7 @@ exports.saveBoletoCredentials = onCall({ secrets: [BOLETO_VAULT_KEY] }, async (r
   // Status "público" (sem segredo nenhum) que o app web PODE ler, só pra saber
   // se já existe uma configuração e de qual provedor/ambiente, pra exibir na tela.
   const identificacaoBase = finalClientId || newSecrets.apiKey || '';
-  await db.collection('tenants').doc(tenantId).collection('boletoConfig').doc('status').set({
+  await getDb().collection('tenants').doc(tenantId).collection('boletoConfig').doc('status').set({
     configured: true,
     provider,
     ambiente: ambiente === 'homologacao' ? 'homologacao' : 'producao',
@@ -162,8 +175,8 @@ exports.saveBoletoCredentials = onCall({ secrets: [BOLETO_VAULT_KEY] }, async (r
 exports.removeBoletoCredentials = onCall(async (request) => {
   const tenantId = requireAuth(request);
 
-  await db.collection('boletoVaults').doc(tenantId).delete();
-  await db.collection('tenants').doc(tenantId).collection('boletoConfig').doc('status').set({
+  await getDb().collection('boletoVaults').doc(tenantId).delete();
+  await getDb().collection('tenants').doc(tenantId).collection('boletoConfig').doc('status').set({
     configured: false,
     provider: null,
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -199,7 +212,7 @@ exports.issueBoleto = onCall({ secrets: [BOLETO_VAULT_KEY] }, async (request) =>
     throw new HttpsError('invalid-argument', 'Informe o cliente para quem o boleto será emitido.');
   }
 
-  const vaultSnap = await db.collection('boletoVaults').doc(tenantId).get();
+  const vaultSnap = await getDb().collection('boletoVaults').doc(tenantId).get();
   if (!vaultSnap.exists) {
     throw new HttpsError(
       'failed-precondition',
@@ -274,7 +287,7 @@ exports.issueBoleto = onCall({ secrets: [BOLETO_VAULT_KEY] }, async (request) =>
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
   };
 
-  await db.collection('tenants').doc(tenantId).collection('boletos').doc(result.boletoId).set(boletoRecord);
+  await getDb().collection('tenants').doc(tenantId).collection('boletos').doc(result.boletoId).set(boletoRecord);
 
   return { ok: true, ...result };
 });
