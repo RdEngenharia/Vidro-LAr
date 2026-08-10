@@ -1,26 +1,143 @@
-// Provedor Efí (ex-Gerencianet) — AINDA NÃO IMPLEMENTADO.
+// ---------------------------------------------------------------------------
+// Provedor Efí (ex-Gerencianet) — implementação real.
+// ---------------------------------------------------------------------------
+// Documentação oficial: https://dev.efipay.com.br/docs/api-cobrancas/
 //
-// Quando for integrar de verdade, a Efí usa OAuth2 client_credentials + certificado
-// mTLS (.p12) para autenticar, e depois chama o endpoint de cobranças/boletos da
-// API de Cobranças v2. Documentação: https://dev.efipay.com.br/
+// A API de Cobranças da Efí (Boleto/Carnê/Cartão) é uma exceção dentro do
+// ecossistema deles: usa só OAuth2 client_credentials via HTTP Basic Auth
+// (Client ID + Client Secret), SEM certificado mTLS — diferente do Pix.
 //
-// Passos para implementar:
-// 1. `npm install axios` (ou usar fetch nativo do Node 20) dentro de /functions
-// 2. Guardar o certificado .p12 como Secret do Cloud Functions (não em Firestore)
-// 3. Trocar client_id/client_secret + certificado por um access_token via
-//    POST https://cobrancas.api.efipay.com.br/v1/authorize (produção)
-// 4. Criar a cobrança via POST /v1/charge (ou /v2/charge para boleto direto)
-// 5. Mapear o retorno da Efí para o mesmo formato usado pelo simulado.js:
-//    { ok, boletoId, barcode, boletoUrl, status, amount, dueDate, payerName }
-async function issueBoleto(_credentials, _boletoData) {
-  throw new Error(
-    'Integração com a Efí ainda não foi implementada. Veja functions/providers/efi.js para o roteiro de implementação.'
-  );
+// Fluxo:
+//   1. POST /v1/authorize (Basic Auth) → access_token
+//   2. POST /v1/charge/one-step (Bearer token) → cria a cobrança E já associa
+//      o boleto como forma de pagamento numa chamada só.
+//   3. A resposta traz o código de barras, o link do PDF e o status.
+//
+// IMPORTANTE: a Efí trabalha com valores em CENTAVOS (ex: 8900 = R$ 89,00),
+// diferente do resto do nosso sistema, que usa reais — a conversão acontece
+// só aqui dentro, isolada.
+const https = require('https');
+
+function efiRequest(baseUrl, path, method, headers, body) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(baseUrl + path);
+    const data = body ? JSON.stringify(body) : null;
+
+    const options = {
+      hostname: url.hostname,
+      path: url.pathname + url.search,
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        ...headers,
+      },
+    };
+    if (data) options.headers['Content-Length'] = Buffer.byteLength(data);
+
+    const req = https.request(options, (res) => {
+      let raw = '';
+      res.on('data', (chunk) => (raw += chunk));
+      res.on('end', () => {
+        let parsed;
+        try {
+          parsed = raw ? JSON.parse(raw) : {};
+        } catch {
+          parsed = { raw };
+        }
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          resolve(parsed);
+        } else {
+          const msg = parsed?.error_description || parsed?.mensagem || parsed?.raw || `HTTP ${res.statusCode}`;
+          reject(new Error(`Efí: ${msg}`));
+        }
+      });
+    });
+
+    req.on('error', (err) => reject(new Error(`Falha de conexão com a Efí: ${err.message}`)));
+    if (data) req.write(data);
+    req.end();
+  });
+}
+
+async function getAccessToken(baseUrl, clientId, clientSecret) {
+  const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+  const result = await efiRequest(baseUrl, '/v1/authorize', 'POST', { Authorization: `Basic ${basicAuth}` }, {
+    grant_type: 'client_credentials',
+  });
+  if (!result.access_token) {
+    throw new Error('A Efí não retornou um token de acesso válido. Confira o Client ID e o Client Secret.');
+  }
+  return result.access_token;
+}
+
+// Converte o endereço do nosso formato para o esperado pela Efí
+function mapAddress(address) {
+  if (!address) return undefined;
+  return {
+    street: address.logradouro || '',
+    number: address.numero || 'S/N',
+    neighborhood: address.bairro || '',
+    zipcode: (address.cep || '').replace(/\D/g, ''),
+    city: address.cidade || '',
+    state: (address.uf || '').toUpperCase(),
+  };
+}
+
+async function issueBoleto(credentials, boletoData) {
+  const { clientId, clientSecret, ambiente } = credentials;
+  if (!clientId || !clientSecret) {
+    throw new Error('Client ID e Client Secret da Efí não configurados no cofre.');
+  }
+
+  const baseUrl =
+    ambiente === 'homologacao' ? 'https://cobrancas-h.api.efipay.com.br' : 'https://cobrancas.api.efipay.com.br';
+
+  const { amount, dueDate, payerName, payerDocument, payerAddress, description } = boletoData;
+
+  if (!payerDocument) {
+    throw new Error('CPF/CNPJ do cliente é obrigatório para emitir boleto pela Efí.');
+  }
+
+  const token = await getAccessToken(baseUrl, clientId, clientSecret);
+
+  const cleanDocument = payerDocument.replace(/\D/g, '');
+  const isCnpj = cleanDocument.length > 11;
+  const amountInCents = Math.round(amount * 100);
+
+  const chargePayload = {
+    items: [{ name: description || 'Serviços de vidraçaria', value: amountInCents, amount: 1 }],
+    payment: {
+      banking_billet: {
+        expire_at: dueDate,
+        customer: {
+          name: payerName,
+          [isCnpj ? 'cnpj' : 'cpf']: cleanDocument,
+          ...(payerAddress ? { address: mapAddress(payerAddress) } : {}),
+        },
+      },
+    },
+  };
+
+  const result = await efiRequest(baseUrl, '/v1/charge/one-step', 'POST', { Authorization: `Bearer ${token}` }, chargePayload);
+
+  const data = result.data || result;
+
+  return {
+    ok: true,
+    simulated: false,
+    boletoId: String(data.charge_id),
+    barcode: data.barcode || null,
+    boletoUrl: (data.pdf && data.pdf.charge) || data.billet_link || data.link || null,
+    status: data.status || 'waiting',
+    amount,
+    dueDate,
+    payerName,
+  };
 }
 
 module.exports = {
   issueBoleto,
-  implemented: false,
+  implemented: true,
   label: 'Efí (Gerencianet)',
   // A API de Cobranças da Efí (Boleto/Carnê/Cartão) é uma exceção dentro do
   // ecossistema deles: diferente do Pix, ela usa só OAuth2 client_credentials
