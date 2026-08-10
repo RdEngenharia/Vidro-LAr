@@ -31,6 +31,23 @@ export const QuotePDFView: React.FC<QuotePDFViewProps> = ({
     return (val || 0).toFixed(3).replace('.', ',');
   };
 
+  // Boleto só faz sentido pra pagamento a prazo — se o cliente paga tudo na
+  // hora, numa forma só (PIX, Dinheiro, Cartão à vista, Permuta), não há nada
+  // "a prazo" pra gerar boleto. Mostra o botão quando:
+  //  - a única forma configurada já é "Boleto"/"Cheque"/"Outro" (não é à vista), OU
+  //  - há mais de uma forma (ex: Entrada + Saldo — pode precisar de boleto pro saldo), OU
+  //  - orçamento antigo (sem Divisão de Pagamento) com entrada parcial (< 100%),
+  //    que é o modelo clássico de entrada + saldo a prazo.
+  const isImmediatePaymentMethod = (method: string) =>
+    ['PIX', 'Dinheiro', 'Cartão de Crédito', 'Cartão de Débito', 'Permuta'].includes(method);
+
+  const isSingleImmediatePayment =
+    !!quote.paymentSplits && quote.paymentSplits.length === 1 && isImmediatePaymentMethod(quote.paymentSplits[0].method);
+
+  const isFullUpfrontLegacy = !quote.paymentSplits?.length && quote.depositPercent === 100;
+
+  const hasDeferredPayment = !(isSingleImmediatePayment || isFullUpfrontLegacy);
+
   // Format date like "quarta-feira, 15 de julho de 2026"
   const formatDateFull = (isoDate: string) => {
     try {
@@ -222,7 +239,7 @@ Ficamos à disposição para agendar sua instalação!`;
             <span>Enviar WhatsApp</span>
           </button>
 
-          {onEmitBoleto && (
+          {onEmitBoleto && hasDeferredPayment && (
             <button
               onClick={onEmitBoleto}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs sm:text-sm font-semibold transition-colors cursor-pointer shadow-xs"
