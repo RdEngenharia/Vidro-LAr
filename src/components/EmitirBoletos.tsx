@@ -1,0 +1,595 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { Customer, Quote, Boleto, BoletoProvider } from '../types';
+import {
+  getBoletoConfigStatus,
+  saveBoletoCredentials,
+  removeBoletoCredentials,
+  issueBoleto,
+  getBoletos,
+} from '../lib/boletoApi';
+import {
+  Lock,
+  ShieldCheck,
+  ChevronDown,
+  ChevronUp,
+  Trash2,
+  Receipt,
+  Copy,
+  Check,
+  AlertTriangle,
+  Loader2,
+  Download,
+} from 'lucide-react';
+
+interface EmitirBoletosProps {
+  tenantId: string;
+  customers: Customer[];
+  quotes: Quote[];
+  // Pré-preenchimento vindo do botão "Emitir Boleto" dentro de um orçamento específico
+  prefill?: { customerId: string; quoteId: string } | null;
+  onClearPrefill?: () => void;
+}
+
+const PROVIDER_LABELS: Record<BoletoProvider, string> = {
+  simulado: 'Modo Teste (Simulado)',
+  efi: 'Efí (Gerencianet)',
+  inter: 'Banco Inter',
+  asaas: 'Asaas',
+};
+
+export const EmitirBoletos: React.FC<EmitirBoletosProps> = ({
+  tenantId,
+  customers,
+  quotes,
+  prefill,
+  onClearPrefill,
+}) => {
+  // Cofre / configuração
+  const [configLoading, setConfigLoading] = useState(true);
+  const [configured, setConfigured] = useState(false);
+  const [configuredProvider, setConfiguredProvider] = useState<BoletoProvider | null>(null);
+  const [isVaultOpen, setIsVaultOpen] = useState(false);
+  const [vaultProvider, setVaultProvider] = useState<BoletoProvider>('simulado');
+  const [clientId, setClientId] = useState('');
+  const [clientSecret, setClientSecret] = useState('');
+  const [isSavingVault, setIsSavingVault] = useState(false);
+  const [vaultError, setVaultError] = useState('');
+  const [vaultSuccess, setVaultSuccess] = useState('');
+
+  // Emissão
+  const [selectedCustomerId, setSelectedCustomerId] = useState('');
+  const [selectedQuoteId, setSelectedQuoteId] = useState('');
+  const [amountOption, setAmountOption] = useState<'total' | 'entrada' | 'saldo' | 'custom'>('total');
+  const [customAmount, setCustomAmount] = useState<number>(0);
+  const [dueDate, setDueDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 5);
+    return d.toISOString().slice(0, 10);
+  });
+  const [description, setDescription] = useState('');
+  const [isIssuing, setIsIssuing] = useState(false);
+  const [issueError, setIssueError] = useState('');
+  const [lastResult, setLastResult] = useState<Awaited<ReturnType<typeof issueBoleto>> | null>(null);
+  const [copiedBarcode, setCopiedBarcode] = useState(false);
+
+  // Histórico
+  const [history, setHistory] = useState<Boleto[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+
+  const loadConfigStatus = async () => {
+    setConfigLoading(true);
+    try {
+      const status = await getBoletoConfigStatus(tenantId);
+      setConfigured(status.configured);
+      setConfiguredProvider(status.provider);
+      setIsVaultOpen(!status.configured);
+    } catch {
+      setConfigured(false);
+    } finally {
+      setConfigLoading(false);
+    }
+  };
+
+  const loadHistory = async () => {
+    setHistoryLoading(true);
+    try {
+      const list = await getBoletos(tenantId);
+      setHistory(list);
+    } catch {
+      setHistory([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadConfigStatus();
+    loadHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId]);
+
+  // Aplica pré-preenchimento vindo do botão "Emitir Boleto" de dentro de um orçamento
+  useEffect(() => {
+    if (prefill) {
+      setSelectedCustomerId(prefill.customerId);
+      setSelectedQuoteId(prefill.quoteId);
+      onClearPrefill && onClearPrefill();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefill]);
+
+  const customerQuotes = useMemo(
+    () => quotes.filter((q) => q.customerId === selectedCustomerId),
+    [quotes, selectedCustomerId]
+  );
+
+  const selectedQuote = useMemo(
+    () => quotes.find((q) => q.id === selectedQuoteId) || null,
+    [quotes, selectedQuoteId]
+  );
+
+  // Opções de valor dinâmicas — respeita a forma de pagamento real do orçamento,
+  // igual já fazemos no PDF e no WhatsApp (sem inventar um "50%" que não existe).
+  const amountOptions = useMemo(() => {
+    if (!selectedQuote) return [];
+    const opts: Array<{ id: typeof amountOption; label: string; value: number }> = [];
+
+    opts.push({ id: 'total', label: `Total do Orçamento (100%)`, value: selectedQuote.totalAmount });
+
+    const hasSplitDeposit =
+      selectedQuote.depositAmount > 0 && selectedQuote.depositAmount < selectedQuote.totalAmount;
+    if (hasSplitDeposit) {
+      opts.push({
+        id: 'entrada',
+        label: `Entrada (${selectedQuote.depositPercent ?? Math.round((selectedQuote.depositAmount / selectedQuote.totalAmount) * 100)}%)`,
+        value: selectedQuote.depositAmount,
+      });
+      if (selectedQuote.remainingAmount > 0) {
+        opts.push({
+          id: 'saldo',
+          label: `Saldo Restante (${100 - (selectedQuote.depositPercent ?? 50)}%)`,
+          value: selectedQuote.remainingAmount,
+        });
+      }
+    }
+
+    opts.push({ id: 'custom', label: 'Valor Personalizado', value: customAmount });
+    return opts;
+  }, [selectedQuote, customAmount]);
+
+  const finalAmount = useMemo(() => {
+    if (amountOption === 'custom') return customAmount;
+    const opt = amountOptions.find((o) => o.id === amountOption);
+    return opt ? opt.value : 0;
+  }, [amountOption, amountOptions, customAmount]);
+
+  // Reset da opção de valor sempre que troca de orçamento (evita levar "saldo"
+  // de um orçamento pro outro sem querer)
+  useEffect(() => {
+    setAmountOption('total');
+    setCustomAmount(selectedQuote?.totalAmount || 0);
+  }, [selectedQuoteId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleSaveVault = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setVaultError('');
+    setVaultSuccess('');
+
+    if (vaultProvider !== 'simulado' && (!clientId.trim() || !clientSecret.trim())) {
+      setVaultError('Informe o Client ID e o Client Secret fornecidos pelo banco.');
+      return;
+    }
+
+    setIsSavingVault(true);
+    try {
+      await saveBoletoCredentials({
+        provider: vaultProvider,
+        clientId: clientId.trim() || 'simulado',
+        clientSecret: clientSecret.trim() || 'simulado',
+      });
+      setVaultSuccess('Cofre configurado com sucesso!');
+      setClientId('');
+      setClientSecret('');
+      await loadConfigStatus();
+      setTimeout(() => setVaultSuccess(''), 3000);
+    } catch (err: any) {
+      setVaultError(err?.message || 'Erro ao salvar as credenciais. Verifique se as Cloud Functions estão publicadas.');
+    } finally {
+      setIsSavingVault(false);
+    }
+  };
+
+  const handleRemoveVault = async () => {
+    if (!window.confirm('Remover as credenciais de boleto configuradas? Você poderá cadastrar novas depois.')) return;
+    try {
+      await removeBoletoCredentials();
+      await loadConfigStatus();
+    } catch (err: any) {
+      setVaultError(err?.message || 'Erro ao remover as credenciais.');
+    }
+  };
+
+  const handleIssue = async () => {
+    setIssueError('');
+    setLastResult(null);
+
+    const customer = customers.find((c) => c.id === selectedCustomerId);
+    if (!customer) {
+      setIssueError('Selecione um cliente.');
+      return;
+    }
+    if (finalAmount <= 0) {
+      setIssueError('Informe um valor válido para o boleto.');
+      return;
+    }
+
+    setIsIssuing(true);
+    try {
+      const result = await issueBoleto({
+        customerId: customer.id,
+        customerName: customer.name,
+        quoteId: selectedQuote?.id,
+        quoteCodeNumber: selectedQuote?.codeNumber,
+        amount: finalAmount,
+        dueDate,
+        description: description || undefined,
+      });
+      setLastResult(result);
+      await loadHistory();
+    } catch (err: any) {
+      setIssueError(err?.message || 'Erro ao emitir o boleto.');
+    } finally {
+      setIsIssuing(false);
+    }
+  };
+
+  const handleCopyBarcode = (barcode: string) => {
+    navigator.clipboard.writeText(barcode).then(() => {
+      setCopiedBarcode(true);
+      setTimeout(() => setCopiedBarcode(false), 2000);
+    });
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+        <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+          <Receipt className="w-5 h-5 text-blue-600" />
+          Emitir Boletos
+        </h2>
+        <p className="text-xs text-slate-500 mt-0.5">
+          Gere boletos para seus clientes a partir dos orçamentos cadastrados. Suas credenciais bancárias ficam
+          guardadas com segurança e nunca são vistas por outros usuários do sistema.
+        </p>
+      </div>
+
+      {/* Cofre de Credenciais */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setIsVaultOpen(!isVaultOpen)}
+          className="w-full flex items-center justify-between p-4 cursor-pointer hover:bg-slate-50 transition-colors"
+        >
+          <div className="flex items-center gap-2.5">
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${configured ? 'bg-emerald-100' : 'bg-amber-100'}`}>
+              <Lock className={`w-4 h-4 ${configured ? 'text-emerald-700' : 'text-amber-700'}`} />
+            </div>
+            <div className="text-left">
+              <p className="text-sm font-bold text-slate-900">Cofre de Credenciais Bancárias</p>
+              <p className="text-[11px] text-slate-500">
+                {configLoading
+                  ? 'Verificando...'
+                  : configured
+                  ? `Configurado — ${PROVIDER_LABELS[configuredProvider || 'simulado']}`
+                  : 'Nenhuma credencial configurada ainda'}
+              </p>
+            </div>
+          </div>
+          {isVaultOpen ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+        </button>
+
+        {isVaultOpen && (
+          <div className="p-5 border-t border-slate-100 space-y-4">
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-[11px] text-blue-800 flex items-start gap-2">
+              <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>
+                Suas credenciais são guardadas num cofre isolado, acessível apenas pela sua conta — nem
+                administradores do sistema conseguem lê-las de volta pela tela. Só usamos "Modo Teste (Simulado)"?
+                Você pode gerar boletos de exemplo sem precisar de credenciais reais, ideal para testar o fluxo antes
+                de configurar seu banco de verdade.
+              </span>
+            </div>
+
+            <form onSubmit={handleSaveVault} className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Banco / Gateway</label>
+                <select
+                  value={vaultProvider}
+                  onChange={(e) => setVaultProvider(e.target.value as BoletoProvider)}
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-slate-900"
+                >
+                  <option value="simulado">Modo Teste (Simulado) — sem credenciais reais</option>
+                  <option value="asaas">Asaas</option>
+                  <option value="efi">Efí (Gerencianet)</option>
+                  <option value="inter">Banco Inter</option>
+                </select>
+              </div>
+
+              {vaultProvider !== 'simulado' && (
+                <>
+                  <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-800 flex items-start gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    <span>
+                      A integração com {PROVIDER_LABELS[vaultProvider]} ainda precisa ser finalizada no servidor
+                      (veja <code className="bg-amber-100 px-1 rounded">functions/providers/{vaultProvider}.js</code>).
+                      Você já pode salvar suas credenciais aqui, mas a emissão só funcionará de verdade depois disso
+                      ser implementado.
+                    </span>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Client ID</label>
+                    <input
+                      type="text"
+                      value={clientId}
+                      onChange={(e) => setClientId(e.target.value)}
+                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-hidden focus:ring-2 focus:ring-slate-900"
+                      placeholder="Client ID fornecido pelo banco"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Client Secret</label>
+                    <input
+                      type="password"
+                      value={clientSecret}
+                      onChange={(e) => setClientSecret(e.target.value)}
+                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-hidden focus:ring-2 focus:ring-slate-900"
+                      placeholder="Client Secret fornecido pelo banco"
+                    />
+                  </div>
+                </>
+              )}
+
+              {vaultError && (
+                <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold rounded-lg">
+                  {vaultError}
+                </div>
+              )}
+              {vaultSuccess && (
+                <div className="p-2.5 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold rounded-lg flex items-center gap-1.5">
+                  <Check className="w-3.5 h-3.5" /> {vaultSuccess}
+                </div>
+              )}
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="submit"
+                  disabled={isSavingVault}
+                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                >
+                  {isSavingVault ? 'Salvando...' : 'Salvar Credenciais'}
+                </button>
+                {configured && (
+                  <button
+                    type="button"
+                    onClick={handleRemoveVault}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-rose-600 hover:bg-rose-50 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Remover Credenciais
+                  </button>
+                )}
+              </div>
+            </form>
+          </div>
+        )}
+      </div>
+
+      {/* Emissão */}
+      {configured && (
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+          <h3 className="font-bold text-slate-900 text-sm border-b border-slate-100 pb-2">Novo Boleto</h3>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Cliente</label>
+              <select
+                value={selectedCustomerId}
+                onChange={(e) => {
+                  setSelectedCustomerId(e.target.value);
+                  setSelectedQuoteId('');
+                }}
+                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-hidden focus:ring-2 focus:ring-slate-900"
+              >
+                <option value="">Selecione um cliente...</option>
+                {customers.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Orçamento (opcional)</label>
+              <select
+                value={selectedQuoteId}
+                onChange={(e) => setSelectedQuoteId(e.target.value)}
+                disabled={!selectedCustomerId}
+                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-hidden focus:ring-2 focus:ring-slate-900 disabled:opacity-50"
+              >
+                <option value="">Sem orçamento vinculado</option>
+                {customerQuotes.map((q) => (
+                  <option key={q.id} value={q.id}>
+                    #{q.codeNumber} — R$ {q.totalAmount.toFixed(2)}
+                  </option>
+                ))}
+              </select>
+              {selectedCustomerId && customerQuotes.length === 0 && (
+                <p className="text-[10px] text-slate-400 mt-1">Este cliente ainda não tem orçamentos cadastrados.</p>
+              )}
+            </div>
+          </div>
+
+          {selectedQuote && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">Valor do Boleto</label>
+              <div className="flex flex-wrap gap-2">
+                {amountOptions.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setAmountOption(opt.id)}
+                    className={`px-3 py-2 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
+                      amountOption === opt.id
+                        ? 'bg-slate-900 text-white border-slate-900'
+                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    {opt.label}
+                    {opt.id !== 'custom' && ` — R$ ${opt.value.toFixed(2)}`}
+                  </button>
+                ))}
+              </div>
+              {amountOption === 'custom' && (
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={customAmount}
+                  onChange={(e) => setCustomAmount(Number(e.target.value))}
+                  className="mt-2 w-40 p-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-hidden focus:ring-2 focus:ring-slate-900"
+                  placeholder="0,00"
+                />
+              )}
+            </div>
+          )}
+
+          {!selectedQuote && selectedCustomerId && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Valor do Boleto (R$)</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={customAmount}
+                onChange={(e) => setCustomAmount(Number(e.target.value))}
+                className="w-40 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-hidden focus:ring-2 focus:ring-slate-900"
+                placeholder="0,00"
+              />
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Vencimento</label>
+              <input
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-hidden focus:ring-2 focus:ring-slate-900"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Descrição (opcional)</label>
+              <input
+                type="text"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder={selectedQuote ? `Orçamento #${selectedQuote.codeNumber}` : 'Ex: Instalação de vidros'}
+                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-hidden focus:ring-2 focus:ring-slate-900"
+              />
+            </div>
+          </div>
+
+          {issueError && (
+            <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold rounded-xl">
+              {issueError}
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={handleIssue}
+            disabled={isIssuing || !selectedCustomerId || finalAmount <= 0}
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
+          >
+            {isIssuing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Receipt className="w-4 h-4" />}
+            <span>{isIssuing ? 'Emitindo...' : `Emitir Boleto${finalAmount > 0 ? ` — R$ ${finalAmount.toFixed(2)}` : ''}`}</span>
+          </button>
+
+          {lastResult && (
+            <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl space-y-2">
+              {lastResult.simulated && (
+                <div className="flex items-center gap-1.5 text-amber-700 text-[11px] font-bold">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  <span>Boleto de TESTE — nenhuma cobrança real foi gerada</span>
+                </div>
+              )}
+              <p className="text-sm font-bold text-emerald-800">Boleto emitido!</p>
+              {lastResult.barcode && (
+                <div className="flex items-center gap-2">
+                  <code className="text-[11px] bg-white px-2 py-1.5 rounded-lg border border-emerald-200 font-mono flex-1 truncate">
+                    {lastResult.barcode}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyBarcode(lastResult.barcode!)}
+                    className="p-1.5 text-emerald-700 hover:bg-emerald-100 rounded-lg transition-colors cursor-pointer"
+                    title="Copiar linha digitável"
+                  >
+                    {copiedBarcode ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  </button>
+                </div>
+              )}
+              {lastResult.boletoUrl && (
+                <a
+                  href={lastResult.boletoUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-700 hover:underline"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Baixar / Ver Boleto
+                </a>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Histórico */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+        <div className="p-4 border-b border-slate-100">
+          <h3 className="font-bold text-slate-900 text-sm">Boletos Emitidos</h3>
+        </div>
+        {historyLoading ? (
+          <div className="p-6 text-center text-xs text-slate-400">Carregando...</div>
+        ) : history.length === 0 ? (
+          <div className="p-6 text-center text-xs text-slate-400">Nenhum boleto emitido ainda.</div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {history.map((b) => (
+              <div key={b.id} className="p-4 flex items-center justify-between gap-3 flex-wrap">
+                <div>
+                  <p className="text-sm font-bold text-slate-900">
+                    {b.customerName}
+                    {b.quoteCodeNumber ? ` — Orçamento #${b.quoteCodeNumber}` : ''}
+                  </p>
+                  <p className="text-[11px] text-slate-500">
+                    Vencimento: {new Date(b.dueDate + 'T00:00:00').toLocaleDateString('pt-BR')} · {PROVIDER_LABELS[b.provider]}
+                    {b.simulated && ' · TESTE'}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-black text-slate-900">R$ {b.amount.toFixed(2)}</p>
+                  <p className="text-[10px] text-slate-400 uppercase font-bold">{b.status}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};

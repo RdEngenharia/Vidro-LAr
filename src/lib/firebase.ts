@@ -7,6 +7,7 @@ import {
   persistentMultipleTabManager,
   Firestore,
 } from 'firebase/firestore';
+import { getFunctions, Functions } from 'firebase/functions';
 
 // Fallback configuration if env vars are not yet set
 const firebaseConfig = {
@@ -21,6 +22,7 @@ const firebaseConfig = {
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
 let db: Firestore | null = null;
+let functions: Functions | null = null;
 
 try {
   app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
@@ -54,6 +56,11 @@ try {
     },
     'default'
   );
+
+  // Cloud Functions: usadas exclusivamente pelo cofre de credenciais de boleto
+  // e pela emissão de boletos, para que segredos bancários nunca cheguem ao
+  // navegador (ver /functions/index.js).
+  functions = getFunctions(app);
 } catch (error) {
   console.warn("Firebase initialization warning:", error);
 }
@@ -79,4 +86,4 @@ export function ensureFirebaseAuth(): Promise<void> {
   });
 }
 
-export { app, auth, db };
+export { app, auth, db, functions };

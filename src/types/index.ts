@@ -155,3 +155,23 @@ export interface UserProfile {
   companyName: string;
   isOfflineMode?: boolean;
 }
+
+export type BoletoProvider = 'simulado' | 'efi' | 'inter' | 'asaas';
+
+export interface Boleto {
+  id: string;
+  tenantId: string;
+  customerId?: string;
+  customerName: string;
+  quoteId?: string;
+  quoteCodeNumber?: number;
+  amount: number;
+  dueDate: string; // ISO date (yyyy-mm-dd)
+  description?: string;
+  provider: BoletoProvider;
+  simulated: boolean;
+  status: string;
+  barcode?: string;
+  boletoUrl?: string | null;
+  createdAt: string;
+}

@@ -6,10 +6,11 @@ import {
   Settings,
   RefreshCw,
   ShieldCheck,
-  Building
+  Building,
+  Receipt
 } from 'lucide-react';
 
-export type TabType = 'quotes' | 'customers' | 'categories' | 'settings' | 'deploy';
+export type TabType = 'quotes' | 'customers' | 'categories' | 'settings' | 'deploy' | 'boletos';
 
 interface SidebarProps {
   activeTab: TabType;
@@ -44,6 +45,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Categorias & Preços',
       icon: Grid,
       badge: categoriesCount,
+    },
+    {
+      id: 'boletos' as TabType,
+      label: 'Emitir Boletos',
+      icon: Receipt,
     },
     {
       id: 'settings' as TabType,

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Quote, CompanySettings } from '../types';
-import { Printer, Download, ArrowLeft, CheckCircle2, Clock, DollarSign, MessageCircle } from 'lucide-react';
+import { Printer, Download, ArrowLeft, CheckCircle2, Clock, DollarSign, MessageCircle, Receipt } from 'lucide-react';
 import { generateQuotePDF, printQuoteDirectly } from '../lib/pdfGenerator';
 import { logError } from '../lib/logger';
 
@@ -9,6 +9,7 @@ interface QuotePDFViewProps {
   companySettings?: CompanySettings;
   onBack: () => void;
   onUpdateStatus?: (newStatus: Quote['status']) => void;
+  onEmitBoleto?: () => void;
 }
 
 export const QuotePDFView: React.FC<QuotePDFViewProps> = ({
@@ -16,6 +17,7 @@ export const QuotePDFView: React.FC<QuotePDFViewProps> = ({
   companySettings,
   onBack,
   onUpdateStatus,
+  onEmitBoleto,
 }) => {
 
   const formatCurrency = (val: number) => {
@@ -219,6 +221,17 @@ Ficamos à disposição para agendar sua instalação!`;
             <MessageCircle className="w-4 h-4" />
             <span>Enviar WhatsApp</span>
           </button>
+
+          {onEmitBoleto && (
+            <button
+              onClick={onEmitBoleto}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs sm:text-sm font-semibold transition-colors cursor-pointer shadow-xs"
+              title="Emitir boleto para este orçamento"
+            >
+              <Receipt className="w-4 h-4" />
+              <span>Emitir Boleto</span>
+            </button>
+          )}
 
           <button
             onClick={handleDownloadPDF}

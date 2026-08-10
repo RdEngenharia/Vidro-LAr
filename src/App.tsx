@@ -26,6 +26,7 @@ import { QuotePDFView } from './components/QuotePDFView';
 import { CustomerManager } from './components/CustomerManager';
 import { CategoryProductManager } from './components/CategoryProductManager';
 import { CompanySettingsView } from './components/CompanySettings';
+import { EmitirBoletos } from './components/EmitirBoletos';
 import { LoginModal } from './components/LoginModal';
 import { DeployGuideModal } from './components/DeployGuideModal';
 import { DevConsoleModal } from './components/DevConsoleModal';
@@ -51,6 +52,9 @@ function MainApp() {
   const [isDeployGuideOpen, setIsDeployGuideOpen] = useState(false);
   const [isDevConsoleOpen, setIsDevConsoleOpen] = useState(false);
   const [isCloudSyncing, setIsCloudSyncing] = useState(false);
+
+  // Pré-preenchimento ao clicar em "Emitir Boleto" de dentro de um orçamento específico
+  const [boletoPrefill, setBoletoPrefill] = useState<{ customerId: string; quoteId: string } | null>(null);
 
   // Update Logger context whenever user/tenant changes
   useEffect(() => {
@@ -302,6 +306,10 @@ function MainApp() {
                       companySettings={settings || undefined}
                       onBack={() => setQuoteSubView('list')}
                       onUpdateStatus={(newStatus) => handleUpdateQuoteStatus(selectedQuote.id, newStatus)}
+                      onEmitBoleto={() => {
+                        setBoletoPrefill({ customerId: selectedQuote.customerId, quoteId: selectedQuote.id });
+                        setActiveTab('boletos');
+                      }}
                     />
                   )}
                 </>
@@ -325,6 +333,17 @@ function MainApp() {
                   onDeleteCategory={handleDeleteCategory}
                   onSaveProduct={handleSaveProduct}
                   onDeleteProduct={handleDeleteProduct}
+                />
+              )}
+
+              {/* BOLETOS TAB */}
+              {activeTab === 'boletos' && (
+                <EmitirBoletos
+                  tenantId={tenantId}
+                  customers={customers}
+                  quotes={quotes}
+                  prefill={boletoPrefill}
+                  onClearPrefill={() => setBoletoPrefill(null)}
                 />
               )}
 
