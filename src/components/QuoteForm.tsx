@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Quote, QuoteItem, Customer, Category, ProductPreset, CompanySettings, PaymentSplit, PaymentMethodType } from '../types';
 import { useAuth } from '../lib/authContext';
 import { genId } from '../lib/id';
-import { Plus, Trash2, Save, UserPlus, Calculator, Info, Check, AlertCircle, CreditCard, Layers } from 'lucide-react';
+import { Plus, Trash2, Save, UserPlus, Calculator, Info, Check, AlertCircle, CreditCard, Layers, Receipt } from 'lucide-react';
 
 interface QuoteFormProps {
   initialQuote?: Quote | null;
@@ -1077,6 +1077,14 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({
                 >
                   <span>🔄 + Adicionar Permuta</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={() => handleAddPaymentSplit('Boleto', 'Pagamento a prazo via Boleto')}
+                  className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer inline-flex items-center gap-2 shadow-xs"
+                >
+                  <Receipt className="w-4 h-4" />
+                  <span>+ Adicionar Boleto (A Prazo)</span>
+                </button>
               </div>
             </div>
           ) : (
@@ -1242,6 +1250,15 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({
                     className="px-3 py-1.5 bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-500/50 text-xs font-bold rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1.5"
                   >
                     <span>🔄 + Permuta</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleAddPaymentSplit('Boleto', 'Pagamento a prazo via Boleto')}
+                    className="px-3 py-1.5 bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/50 text-xs font-bold rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1.5"
+                  >
+                    <Receipt className="w-3.5 h-3.5" />
+                    <span>+ Boleto (A Prazo)</span>
                   </button>
                 </div>
 
