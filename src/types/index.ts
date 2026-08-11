@@ -191,6 +191,8 @@ export interface Boleto {
   provider: BoletoProvider;
   simulated: boolean;
   status: string;
+  pago?: boolean;        // confirmado de verdade via reconsulta ao banco (webhook)
+  paidAt?: string | null;
   barcode?: string;
   boletoUrl?: string | null;
   createdAt: string;

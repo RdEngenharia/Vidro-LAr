@@ -2,15 +2,15 @@
   "name": "vitri-pro-functions",
   "description": "Cloud Functions do Sistema Vidraçaria Pro — cofre de credenciais de boleto e emissão de boletos, mantendo chaves bancárias fora do navegador.",
   "engines": {
-    "node": "20"
+    "node": "22"
   },
   "main": "index.js",
   "scripts": {
     "deploy": "firebase deploy --only functions"
   },
   "dependencies": {
-    "firebase-admin": "^12.6.0",
-    "firebase-functions": "^5.1.1"
+    "firebase-admin": "^13.7.0",
+    "firebase-functions": "^7.3.2"
   },
   "private": true
 }

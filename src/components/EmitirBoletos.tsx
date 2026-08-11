@@ -7,6 +7,7 @@ import {
   removeBoletoCredentials,
   issueBoleto,
   getBoletos,
+  getBoletoWebhookUrl,
 } from '../lib/boletoApi';
 import {
   Lock,
@@ -22,6 +23,8 @@ import {
   Download,
   Info,
   Landmark,
+  Link2,
+  Copy as CopyIcon,
 } from 'lucide-react';
 
 interface EmitirBoletosProps {
@@ -62,6 +65,8 @@ export const EmitirBoletos: React.FC<EmitirBoletosProps> = ({
   const [configuredProvider, setConfiguredProvider] = useState<BoletoProvider | null>(null);
   const [configuredAmbiente, setConfiguredAmbiente] = useState<'producao' | 'homologacao'>('producao');
   const [configuredIdentificacao, setConfiguredIdentificacao] = useState('');
+  const [webhookUrl, setWebhookUrl] = useState('');
+  const [copiedWebhook, setCopiedWebhook] = useState(false);
   const [isVaultOpen, setIsVaultOpen] = useState(false);
   const [vaultProvider, setVaultProvider] = useState<BoletoProvider>('asaas');
   const [vaultAmbiente, setVaultAmbiente] = useState<'producao' | 'homologacao'>('producao');
@@ -155,6 +160,20 @@ export const EmitirBoletos: React.FC<EmitirBoletosProps> = ({
       setIsVaultOpen(!status.configured);
       if (status.provider) setVaultProvider(status.provider);
       if (status.ambiente) setVaultAmbiente(status.ambiente);
+
+      // Asaas e Inter exigem cadastrar o endereço de aviso de pagamento no
+      // painel deles (a Efí não precisa — o endereço já vai embutido em cada
+      // cobrança). Busca a URL pra mostrar pronta pra copiar.
+      if (status.configured && (status.provider === 'asaas' || status.provider === 'inter')) {
+        try {
+          const webhook = await getBoletoWebhookUrl();
+          setWebhookUrl(webhook.url);
+        } catch {
+          setWebhookUrl('');
+        }
+      } else {
+        setWebhookUrl('');
+      }
     } catch {
       setConfigured(false);
     } finally {
@@ -430,6 +449,40 @@ export const EmitirBoletos: React.FC<EmitirBoletosProps> = ({
                 administradores do sistema conseguem lê-las de volta pela tela.
               </span>
             </div>
+
+            {webhookUrl && (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-[11px] text-emerald-900">
+                <div className="flex items-start gap-2">
+                  <Link2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-700" />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-bold mb-1">
+                      Endereço de aviso de pagamento — cole no painel {providerLabel(configuredProvider)}
+                    </p>
+                    <p className="mb-2">
+                      Sem isso, o sistema não fica sabendo quando um boleto é pago — o valor aparece "Pendente" pra
+                      sempre até você verificar manualmente.
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 min-w-0 truncate bg-white px-2 py-1.5 rounded-lg border border-emerald-200 font-mono text-[10px]">
+                        {webhookUrl}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(webhookUrl);
+                          setCopiedWebhook(true);
+                          setTimeout(() => setCopiedWebhook(false), 2000);
+                        }}
+                        className="shrink-0 p-1.5 text-emerald-700 hover:bg-emerald-100 rounded-lg transition-colors cursor-pointer"
+                        title="Copiar endereço"
+                      >
+                        {copiedWebhook ? <Check className="w-4 h-4" /> : <CopyIcon className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <form onSubmit={handleSaveVault} className="space-y-4">
               <div>
@@ -806,7 +859,16 @@ export const EmitirBoletos: React.FC<EmitirBoletosProps> = ({
                 </div>
                 <div className="text-right">
                   <p className="text-sm font-black text-slate-900">R$ {b.amount.toFixed(2)}</p>
-                  <p className="text-[10px] text-slate-400 uppercase font-bold">{b.status}</p>
+                  {b.pago ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                      <Check className="w-3 h-3" /> Pago
+                      {b.paidAt && ` em ${new Date(b.paidAt).toLocaleDateString('pt-BR')}`}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-slate-400 uppercase font-bold" title="Atualiza automaticamente quando o banco confirmar o pagamento">
+                      Pendente
+                    </span>
+                  )}
                 </div>
               </div>
             ))}

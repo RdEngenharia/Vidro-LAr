@@ -116,6 +116,12 @@ export async function issueBoleto(params: IssueBoletoParams): Promise<IssueBolet
   return res.data as IssueBoletoResult;
 }
 
+export async function getBoletoWebhookUrl(): Promise<{ url: string; provider: BoletoProvider }> {
+  const fn = httpsCallable(requireFunctions(), 'getBoletoWebhookUrl');
+  const res = await fn({});
+  return res.data as { url: string; provider: BoletoProvider };
+}
+
 export async function getBoletos(tenantId: string): Promise<Boleto[]> {
   await ensureFirebaseAuth();
   if (!firebaseDb) return [];

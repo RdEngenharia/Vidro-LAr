@@ -193,8 +193,43 @@ async function issueBoleto(credentials, boletoData) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// getBoletoStatus — consulta o status REAL de uma cobrança direto no Inter.
+// ---------------------------------------------------------------------------
+// Mesma ideia da Asaas/Efí: o aviso do webhook é só um gatilho, nunca uma
+// confirmação. Antes de marcar qualquer coisa como paga, perguntamos de novo.
+async function getBoletoStatus(credentials, codigoSolicitacao) {
+  const { clientId, clientSecret, certificateBase64, certificatePassword, ambiente } = credentials;
+  const baseUrl =
+    ambiente === 'homologacao'
+      ? 'https://cdpj-sandbox.partners.uatinter.co'
+      : 'https://cdpj.partners.bancointer.com.br';
+
+  const pfx = Buffer.from(certificateBase64, 'base64');
+  const token = await getAccessToken(baseUrl, pfx, certificatePassword, clientId, clientSecret);
+
+  const details = await interRequest(
+    baseUrl,
+    `/cobranca/v3/cobrancas/${codigoSolicitacao}`,
+    'GET',
+    pfx,
+    certificatePassword,
+    { Authorization: `Bearer ${token}` }
+  );
+
+  const situacao = (details.cobranca && details.cobranca.situacao) || details.situacao || '';
+  const PAGOS = ['RECEBIDO', 'PAGO', 'LIQUIDADO', 'MARCADO_RECEBIDO'];
+  return {
+    boletoId: String(codigoSolicitacao),
+    status: situacao,
+    pago: PAGOS.includes(String(situacao).toUpperCase()),
+    paidAt: (details.cobranca && details.cobranca.dataSituacao) || null,
+  };
+}
+
 module.exports = {
   issueBoleto,
+  getBoletoStatus,
   implemented: true,
   label: 'Banco Inter',
   // O Inter entrega .crt + .key separados — a API de cobrança exige um

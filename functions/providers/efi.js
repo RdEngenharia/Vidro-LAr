@@ -92,7 +92,7 @@ async function issueBoleto(credentials, boletoData) {
   const baseUrl =
     ambiente === 'homologacao' ? 'https://cobrancas-h.api.efipay.com.br' : 'https://cobrancas.api.efipay.com.br';
 
-  const { amount, dueDate, payerName, payerDocument, payerAddress, description } = boletoData;
+  const { amount, dueDate, payerName, payerDocument, payerAddress, description, webhookUrl } = boletoData;
 
   if (!payerDocument) {
     throw new Error('CPF/CNPJ do cliente é obrigatório para emitir boleto pela Efí.');
@@ -116,6 +116,12 @@ async function issueBoleto(credentials, boletoData) {
         },
       },
     },
+    // O endereço de aviso de pagamento vai AQUI, em cada cobrança — não na aba
+    // "URL de callback" do painel da Efí (aquela é o formato antigo, em XML).
+    // Configurado por cobrança, a Efí manda um token de notificação pra essa
+    // URL quando o status muda; nós então consultamos de volta pra confirmar
+    // (nunca confiamos direto no que a chamada do webhook diz).
+    ...(webhookUrl ? { metadata: { notification_url: webhookUrl } } : {}),
   };
 
   const result = await efiRequest(baseUrl, '/v1/charge/one-step', 'POST', { Authorization: `Bearer ${token}` }, chargePayload);
@@ -135,8 +141,53 @@ async function issueBoleto(credentials, boletoData) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// resolveNotification — troca o token que a Efí manda no aviso pelo(s)
+// identificador(es) de cobrança realmente afetados.
+// ---------------------------------------------------------------------------
+async function resolveNotification(credentials, notificationToken) {
+  const { clientId, clientSecret, ambiente } = credentials;
+  const baseUrl =
+    ambiente === 'homologacao' ? 'https://cobrancas-h.api.efipay.com.br' : 'https://cobrancas.api.efipay.com.br';
+  const token = await getAccessToken(baseUrl, clientId, clientSecret);
+
+  const result = await efiRequest(
+    baseUrl,
+    `/v1/notification/${notificationToken}`,
+    'GET',
+    { Authorization: `Bearer ${token}` }
+  );
+  const list = (result.data && result.data) || [];
+  return (Array.isArray(list) ? list : [list]).map((item) => String(item.identifiers?.charge_id || item.charge_id));
+}
+
+// ---------------------------------------------------------------------------
+// getBoletoStatus — consulta o status REAL de uma cobrança direto na Efí.
+// ---------------------------------------------------------------------------
+// Mesma ideia da Asaas: o aviso é só um gatilho, nunca uma confirmação. Antes
+// de marcar qualquer coisa como paga, perguntamos de novo pra Efí.
+async function getBoletoStatus(credentials, chargeId) {
+  const { clientId, clientSecret, ambiente } = credentials;
+  const baseUrl =
+    ambiente === 'homologacao' ? 'https://cobrancas-h.api.efipay.com.br' : 'https://cobrancas.api.efipay.com.br';
+  const token = await getAccessToken(baseUrl, clientId, clientSecret);
+
+  const result = await efiRequest(baseUrl, `/v1/charge/${chargeId}`, 'GET', { Authorization: `Bearer ${token}` });
+  const data = result.data || result;
+
+  const PAGOS = ['paid', 'settled'];
+  return {
+    boletoId: String(chargeId),
+    status: data.status,
+    pago: PAGOS.includes(data.status),
+    paidAt: data.paid_at || null,
+  };
+}
+
 module.exports = {
   issueBoleto,
+  resolveNotification,
+  getBoletoStatus,
   implemented: true,
   label: 'Efí (Gerencianet)',
   // A API de Cobranças da Efí (Boleto/Carnê/Cartão) é uma exceção dentro do

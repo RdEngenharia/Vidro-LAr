@@ -12,10 +12,11 @@
 // Em toda função, o "dono dos dados" é sempre `request.auth.uid` — o UID da
 // sessão de login validada pelo próprio Firebase. Nunca confiamos em um
 // tenantId enviado pelo cliente.
-const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https');
 const { defineSecret } = require('firebase-functions/params');
 const admin = require('firebase-admin');
 const { getFirestore } = require('firebase-admin/firestore');
+const crypto = require('crypto');
 const { getProvider, PROVIDERS } = require('./providers');
 const { encrypt, decrypt } = require('./crypto-helper');
 
@@ -354,11 +355,18 @@ exports.saveBoletoCredentials = onCall({ secrets: [BOLETO_VAULT_KEY] }, async (r
     );
   }
 
+  // Token do webhook: gerado uma única vez por tenant e reaproveitado depois
+  // (trocar de banco não muda o endereço de aviso já registrado no painel do
+  // banco anterior). Não é a proteção real (essa vem da reconsulta ao banco
+  // — ver boletoWebhook mais abaixo), é só um filtro contra ruído aleatório.
+  const webhookToken = existing?.webhookToken || crypto.randomBytes(20).toString('hex');
+
   await getDb().collection('boletoVaults').doc(tenantId).set({
     provider,
     ambiente: ambiente === 'homologacao' ? 'homologacao' : 'producao',
     clientId: finalClientId,
     secretsEnc,
+    webhookToken,
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     createdAt: existing?.createdAt || admin.firestore.FieldValue.serverTimestamp(),
   });
@@ -374,6 +382,7 @@ exports.saveBoletoCredentials = onCall({ secrets: [BOLETO_VAULT_KEY] }, async (r
       identificacaoBase.length > 8
         ? `${identificacaoBase.slice(0, 4)}…${identificacaoBase.slice(-4)}`
         : identificacaoBase,
+    webhookUrl: buildWebhookUrl(provider, tenantId, webhookToken),
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   });
 
@@ -467,6 +476,15 @@ exports.issueBoleto = onCall({ secrets: [BOLETO_VAULT_KEY] }, async (request) =>
     ...decryptedSecrets,
   };
 
+  // Garante que exista um token de webhook pra este tenant, mesmo que ele
+  // tenha configurado o cofre antes dessa função existir.
+  let webhookToken = vault.webhookToken;
+  if (!webhookToken) {
+    webhookToken = crypto.randomBytes(20).toString('hex');
+    await getDb().collection('boletoVaults').doc(tenantId).set({ webhookToken }, { merge: true });
+  }
+  const webhookUrl = buildWebhookUrl(vault.provider, tenantId, webhookToken);
+
   let result;
   try {
     result = await provider.issueBoleto(credentials, {
@@ -478,6 +496,7 @@ exports.issueBoleto = onCall({ secrets: [BOLETO_VAULT_KEY] }, async (request) =>
       payerEmail: customerEmail || null,
       payerPhone: customerPhone || null,
       description: description || `Orçamento #${quoteCodeNumber || ''}`.trim(),
+      webhookUrl,
     });
   } catch (err) {
     throw new HttpsError('internal', err.message || 'Falha ao emitir boleto junto ao banco.');
@@ -499,6 +518,11 @@ exports.issueBoleto = onCall({ secrets: [BOLETO_VAULT_KEY] }, async (request) =>
     ambiente: vault.ambiente,
     simulated: !!result.simulated,
     status: result.status,
+    // Separado do "status" (que é o texto vindo do banco) — este campo é o
+    // que o webhook realmente atualiza, e o que a tela usa pra decidir se
+    // mostra "Pago" ou não. Ver seção "trate o aviso como boato".
+    pago: false,
+    paidAt: null,
     barcode: result.barcode || null,
     boletoUrl: result.boletoUrl || null,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -507,4 +531,171 @@ exports.issueBoleto = onCall({ secrets: [BOLETO_VAULT_KEY] }, async (request) =>
   await getDb().collection('tenants').doc(tenantId).collection('boletos').doc(result.boletoId).set(boletoRecord);
 
   return { ok: true, ...result };
+});
+
+// ---------------------------------------------------------------------------
+// Webhook: aviso de pagamento — "trate como boato".
+// ---------------------------------------------------------------------------
+// Este endereço é PÚBLICO (o banco chama de fora, sem login nenhum) — então
+// qualquer pessoa poderia, teoricamente, mandar um JSON dizendo "fulano
+// pagou". Se acreditássemos nisso direto, um boleto poderia ser marcado como
+// pago sem ter sido — problema fiscal e de confiança com o cliente, não só
+// bug de tela.
+//
+// Por isso a regra é fixa: o aviso serve só de GATILHO. Ao recebê-lo, sempre
+// perguntamos de novo pro banco (com a credencial real do próprio tenant) se
+// aquilo é verdade, e só então atualizamos o nosso registro.
+//
+// Identificação do tenant: o próprio endereço do webhook carrega o UID
+// (?u=...) e um token gerado só pra essa finalidade (?token=...) — nenhum dos
+// dois é a proteção real (a reconsulta ao banco é), servem só pra filtrar
+// ruído de robôs varrendo a internet.
+function buildWebhookUrl(provider, tenantId, webhookToken) {
+  const base = process.env.BOLETO_WEBHOOK_BASE_URL || 'https://us-central1-vitri-pro.cloudfunctions.net/boletoWebhook';
+  return `${base}?provider=${encodeURIComponent(provider)}&u=${encodeURIComponent(tenantId)}&token=${encodeURIComponent(webhookToken)}`;
+}
+
+// getBoletoWebhookUrl — o mestre usa isso pra ver/copiar o endereço de aviso
+// e colar no painel do banco (Asaas e Inter exigem configurar isso à parte;
+// a Efí não precisa, porque o endereço já vai embutido em cada cobrança).
+exports.getBoletoWebhookUrl = onCall(async (request) => {
+  const tenantId = requireMaster(request);
+
+  const vaultSnap = await getDb().collection('boletoVaults').doc(tenantId).get();
+  if (!vaultSnap.exists) {
+    throw new HttpsError('failed-precondition', 'Configure o cofre de credenciais primeiro.');
+  }
+  const vault = vaultSnap.data();
+
+  let webhookToken = vault.webhookToken;
+  if (!webhookToken) {
+    webhookToken = crypto.randomBytes(20).toString('hex');
+    await getDb().collection('boletoVaults').doc(tenantId).set({ webhookToken }, { merge: true });
+  }
+
+  return { url: buildWebhookUrl(vault.provider, tenantId, webhookToken), provider: vault.provider };
+});
+
+// boletoWebhook — recebe o aviso dos 3 bancos. É uma função HTTP comum
+// (onRequest), não uma Cloud Function autenticada (onCall) — o banco não faz
+// login no Firebase, então não tem token de usuário nenhum aqui.
+exports.boletoWebhook = onRequest({ secrets: [BOLETO_VAULT_KEY] }, async (req, res) => {
+  // Responde rápido e sempre 200 — bancos reenviam o aviso se demorar ou se
+  // não gostarem da resposta, e reenvio processado duas vezes é pior do que
+  // eventualmente perder um aviso (a reconciliação manual cobre isso depois).
+  try {
+    const provider = String(req.query.provider || '').trim();
+    const tenantId = String(req.query.u || '').trim();
+    const receivedToken = String(req.query.token || '').trim();
+
+    if (!provider || !tenantId) {
+      res.status(200).send('ignorado: parâmetros ausentes');
+      return;
+    }
+
+    const vaultSnap = await getDb().collection('boletoVaults').doc(tenantId).get();
+    if (!vaultSnap.exists) {
+      res.status(200).send('ignorado: tenant sem cofre configurado');
+      return;
+    }
+    const vault = vaultSnap.data();
+
+    // Filtro de ruído — não é a proteção real (essa vem da reconsulta abaixo).
+    if (vault.webhookToken && receivedToken !== vault.webhookToken) {
+      res.status(200).send('ignorado: token não confere');
+      return;
+    }
+    if (vault.provider !== provider) {
+      res.status(200).send('ignorado: provedor não confere com o cofre deste tenant');
+      return;
+    }
+
+    const providerMod = getProvider(vault.provider);
+    let decryptedSecrets;
+    try {
+      decryptedSecrets = JSON.parse(decrypt(vault.secretsEnc));
+    } catch {
+      res.status(200).send('ignorado: falha ao decifrar credenciais');
+      return;
+    }
+    const credentials = {
+      provider: vault.provider,
+      ambiente: vault.ambiente,
+      clientId: vault.clientId,
+      ...decryptedSecrets,
+    };
+
+    // Cada banco manda o aviso num formato diferente — descobrimos quais
+    // cobranças foram citadas, sem confiar no status que vier junto.
+    let chargeIds = [];
+    if (provider === 'efi') {
+      // A Efí manda { notification: "<token>" } — o token é trocado pelo(s)
+      // charge_id(s) de verdade numa segunda chamada, autenticada.
+      const notificationToken = req.body && req.body.notification;
+      if (notificationToken && providerMod.resolveNotification) {
+        try {
+          chargeIds = await providerMod.resolveNotification(credentials, notificationToken);
+        } catch (err) {
+          console.warn('[boletoWebhook][efi] Falha ao resolver notificação:', err.message);
+        }
+      }
+    } else if (provider === 'asaas') {
+      // A Asaas manda o objeto da cobrança dentro de "payment".
+      const id = req.body && req.body.payment && req.body.payment.id;
+      if (id) chargeIds = [String(id)];
+    } else if (provider === 'inter') {
+      // O Inter manda uma lista de cobranças afetadas.
+      const lista = (req.body && (req.body.webhooks || req.body.cobrancas)) || [];
+      chargeIds = lista.map((w) => String(w.codigoSolicitacao || w.seuNumero)).filter(Boolean);
+    }
+
+    if (chargeIds.length === 0) {
+      res.status(200).send('ok: nenhuma cobrança identificada no aviso');
+      return;
+    }
+
+    const boletosRef = getDb().collection('tenants').doc(tenantId).collection('boletos');
+
+    for (const chargeId of chargeIds) {
+      try {
+        // A cobrança precisa EXISTIR no nosso sistema E pertencer a este
+        // tenant — sem essa segunda conferência, um aviso com o id de uma
+        // cobrança alheia daria baixa na conta errada.
+        const boletoSnap = await boletosRef.doc(chargeId).get();
+        if (!boletoSnap.exists) {
+          console.warn(`[boletoWebhook][${provider}] Cobrança ${chargeId} não encontrada neste tenant — ignorado.`);
+          continue;
+        }
+        if (boletoSnap.data().pago === true) {
+          continue; // já processado antes — idempotência, evita duplicar
+        }
+
+        // Pergunta pro banco de novo — é este passo, não o aviso em si, que
+        // decide se algo foi realmente pago.
+        if (!providerMod.getBoletoStatus) continue;
+        const statusReal = await providerMod.getBoletoStatus(credentials, chargeId);
+
+        if (statusReal.pago) {
+          await boletosRef.doc(chargeId).set(
+            {
+              pago: true,
+              status: statusReal.status,
+              paidAt: statusReal.paidAt || new Date().toISOString(),
+            },
+            { merge: true }
+          );
+          console.log(`[boletoWebhook][${provider}] Cobrança ${chargeId} confirmada como PAGA.`);
+        }
+      } catch (err) {
+        console.warn(`[boletoWebhook][${provider}] Erro ao processar ${chargeId}:`, err.message);
+      }
+    }
+
+    res.status(200).send('ok');
+  } catch (err) {
+    console.error('[boletoWebhook] Erro inesperado:', err.message);
+    // Mesmo em erro inesperado, responde 200 — não queremos que o banco
+    // fique reenviando o mesmo aviso indefinidamente.
+    res.status(200).send('erro registrado');
+  }
 });

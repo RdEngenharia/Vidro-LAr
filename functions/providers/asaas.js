@@ -116,8 +116,32 @@ async function issueBoleto(credentials, boletoData) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// getBoletoStatus — consulta o status REAL de uma cobrança direto na Asaas.
+// ---------------------------------------------------------------------------
+// Usada pelo webhook: NUNCA confiamos no status que vem dentro do aviso do
+// banco (poderia ser forjado por qualquer um, já que o endereço do webhook é
+// público) — em vez disso, ao receber um aviso, consultamos a Asaas de novo,
+// com a própria credencial do usuário, e só então decidimos se algo foi
+// realmente pago.
+async function getBoletoStatus(credentials, boletoId) {
+  const { apiKey, ambiente } = credentials;
+  const baseUrl = ambiente === 'homologacao' ? 'https://api-sandbox.asaas.com' : 'https://api.asaas.com';
+
+  const payment = await asaasRequest(baseUrl, `/v3/payments/${boletoId}`, 'GET', apiKey);
+
+  const PAGOS = ['RECEIVED', 'CONFIRMED', 'RECEIVED_IN_CASH'];
+  return {
+    boletoId,
+    status: payment.status,
+    pago: PAGOS.includes(payment.status),
+    paidAt: payment.paymentDate || payment.clientPaymentDate || null,
+  };
+}
+
 module.exports = {
   issueBoleto,
+  getBoletoStatus,
   implemented: true,
   label: 'Asaas',
   // O Asaas é mais simples que os bancos com certificado: só uma Chave de
