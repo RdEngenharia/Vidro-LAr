@@ -7,10 +7,12 @@ import {
   RefreshCw,
   ShieldCheck,
   Building,
-  Receipt
+  Receipt,
+  UserCog
 } from 'lucide-react';
+import { TeamMemberPermissions } from '../types';
 
-export type TabType = 'quotes' | 'customers' | 'categories' | 'settings' | 'deploy' | 'boletos';
+export type TabType = 'quotes' | 'customers' | 'categories' | 'settings' | 'deploy' | 'boletos' | 'usuarios';
 
 interface SidebarProps {
   activeTab: TabType;
@@ -18,6 +20,8 @@ interface SidebarProps {
   quotesCount: number;
   customersCount: number;
   categoriesCount: number;
+  role: 'master' | 'member';
+  permissions: TeamMemberPermissions;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -26,42 +30,61 @@ export const Sidebar: React.FC<SidebarProps> = ({
   quotesCount,
   customersCount,
   categoriesCount,
+  role,
+  permissions,
 }) => {
+  const isMaster = role === 'master';
+
+  // Cada aba só aparece se a pessoa tiver a permissão correspondente — o
+  // mestre sempre vê tudo. "Usuários" e "Dados da Vidraçaria" são exclusivas
+  // do mestre (gestão de equipe e dados da empresa não são delegáveis).
   const navItems = [
     {
       id: 'quotes' as TabType,
       label: 'Orçamentos & Pedidos',
       icon: FileText,
       badge: quotesCount,
+      visible: isMaster || permissions.orcamentos,
     },
     {
       id: 'customers' as TabType,
       label: 'Cadastro de Clientes',
       icon: Users,
       badge: customersCount,
+      visible: isMaster || permissions.clientes,
     },
     {
       id: 'categories' as TabType,
       label: 'Categorias & Preços',
       icon: Grid,
       badge: categoriesCount,
+      visible: isMaster || permissions.precos,
     },
     {
       id: 'boletos' as TabType,
       label: 'Emitir Boletos',
       icon: Receipt,
+      visible: isMaster || permissions.boletos,
+    },
+    {
+      id: 'usuarios' as TabType,
+      label: 'Usuários',
+      icon: UserCog,
+      visible: isMaster,
     },
     {
       id: 'settings' as TabType,
       label: 'Dados da Vidraçaria',
       icon: Settings,
+      visible: isMaster,
     },
     {
       id: 'deploy' as TabType,
       label: 'Atualizar Sistema',
       icon: RefreshCw,
+      visible: true,
     },
-  ];
+  ].filter((item) => item.visible);
 
   return (
     <aside className="w-full md:w-64 bg-white border-r border-slate-200 shrink-0">

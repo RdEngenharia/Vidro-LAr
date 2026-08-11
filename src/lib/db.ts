@@ -22,7 +22,7 @@ import {
   deleteDoc,
 } from 'firebase/firestore';
 import { db as firebaseDb, ensureFirebaseAuth } from './firebase';
-import { Customer, Category, ProductPreset, Quote, CompanySettings } from '../types';
+import { Customer, Category, ProductPreset, Quote, CompanySettings, TeamMember } from '../types';
 
 function requireDb() {
   if (!firebaseDb) {
@@ -265,4 +265,26 @@ export async function initializeTenantData(
     };
     await saveCompanySettings(defaultSettings);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Equipe (mestre + até 2 usuários) — registro do próprio mestre
+// ---------------------------------------------------------------------------
+// Os usuários MEMBROS só são criados via Cloud Function (createTeamMember),
+// que grava a Custom Claim e o documento juntos, com privilégio de admin.
+// O MESTRE, porém, grava o próprio registro direto daqui — as regras do
+// Firestore permitem isso especificamente (mestre escrevendo só o próprio
+// documento dentro de teamMembers), pra listTeamMembers já mostrar o dono
+// da conta junto dos demais sem precisar de uma function só pra isso.
+export async function saveMasterTeamMemberSelf(tenantId: string, name: string, email: string): Promise<void> {
+  await ensureFirebaseAuth();
+  const selfMember: TeamMember = {
+    uid: tenantId,
+    tenantId,
+    name: name || 'Administrador',
+    email,
+    role: 'master',
+    permissions: { orcamentos: true, clientes: true, precos: true, boletos: true },
+  };
+  await setDoc(tenantDoc(tenantId, 'teamMembers', tenantId), selfMember, { merge: true });
 }

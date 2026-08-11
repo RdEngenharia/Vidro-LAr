@@ -11,8 +11,8 @@ import {
   EmailAuthProvider,
   User as FirebaseUser,
 } from 'firebase/auth';
-import { UserProfile, CompanySettings } from '../types';
-import { initializeTenantData, getCompanySettings, saveCompanySettings } from './db';
+import { UserProfile, CompanySettings, TeamMemberPermissions } from '../types';
+import { initializeTenantData, getCompanySettings, saveCompanySettings, saveMasterTeamMemberSelf } from './db';
 import { auth as firebaseAuth } from './firebase';
 import { logError } from './logger';
 
@@ -75,10 +75,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [authError, setAuthError] = useState<string | null>(null);
 
   // Fonte da verdade da sessão: Firebase Authentication (e-mail/senha real).
-  // O UID do Firebase vira o `tenantId` — é ele que garante, nas regras do Firestore
-  // (allow read, write: if request.auth.uid == tenantId), que cada vidraçaria só
-  // enxerga seus próprios dados. Os dados em si (clientes, orçamentos, etc.) moram
-  // só no Firestore — não existe mais um banco local separado para "puxar".
+  // O primeiro usuário de cada conta é o "mestre" — o próprio UID dele já É o
+  // tenantId, exatamente como sempre foi neste sistema. Usuários criados por
+  // ele ("membros") são contas de login PRÓPRIAS, vinculadas ao tenant do
+  // mestre e às permissões deles através de uma Custom Claim gravada no
+  // token de login — não existe outro jeito seguro de fazer isso sem dar a
+  // um membro acesso total só por estar logado.
   useEffect(() => {
     if (!firebaseAuth) {
       console.warn('Firebase não inicializado — verifique o arquivo .env');
@@ -104,13 +106,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const loadTenant = async (firebaseUser: FirebaseUser, fallbackCompanyName?: string) => {
-    const tenantId = firebaseUser.uid;
+    // Força atualizar o token para pegar a Custom Claim mais recente — sem
+    // isso, uma alteração de permissão feita pelo mestre só valeria depois
+    // de até 1h (tempo padrão de cache do token do Firebase).
+    const tokenResult = await firebaseUser.getIdTokenResult(true);
+    const claims = tokenResult.claims as { tenantId?: string; role?: string; permissions?: Partial<TeamMemberPermissions> };
 
-    // Garante dados iniciais (categorias/produtos/config padrão) apenas se este
-    // tenant ainda não tiver nada no Firestore (primeiro acesso da conta).
-    await initializeTenantData(tenantId, fallbackCompanyName || firebaseUser.displayName || 'Minha Vidraçaria', firebaseUser.email || '');
+    const isMember = claims.role === 'member';
+    const tenantId = isMember && claims.tenantId ? claims.tenantId : firebaseUser.uid;
+
+    if (!isMember) {
+      // Só o mestre semeia/inicializa os dados do tenant (categorias padrão,
+      // configurações vazias) — um membro nunca "cria" um tenant novo.
+      await initializeTenantData(tenantId, fallbackCompanyName || firebaseUser.displayName || 'Minha Vidraçaria', firebaseUser.email || '');
+      // Garante que o mestre também aparece na lista de "Usuários" do sistema,
+      // não só os membros criados por ele.
+      await saveMasterTeamMemberSelf(tenantId, firebaseUser.displayName || '', firebaseUser.email || '');
+    }
 
     const companySettings = await getCompanySettings(tenantId);
+
+    const permissions: TeamMemberPermissions = isMember
+      ? {
+          orcamentos: !!claims.permissions?.orcamentos,
+          clientes: !!claims.permissions?.clientes,
+          precos: !!claims.permissions?.precos,
+          boletos: !!claims.permissions?.boletos,
+        }
+      : { orcamentos: true, clientes: true, precos: true, boletos: true };
 
     const profile: UserProfile = {
       uid: firebaseUser.uid,
@@ -118,6 +141,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       email: firebaseUser.email || '',
       name: firebaseUser.displayName || '',
       companyName: companySettings?.companyName || fallbackCompanyName || '',
+      role: isMember ? 'member' : 'master',
+      permissions,
     };
 
     if (companySettings) setSettings(companySettings);

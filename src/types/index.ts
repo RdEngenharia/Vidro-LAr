@@ -153,7 +153,27 @@ export interface UserProfile {
   email: string;
   name: string;
   companyName: string;
+  role: 'master' | 'member';
+  permissions: TeamMemberPermissions;
   isOfflineMode?: boolean;
+}
+
+export interface TeamMemberPermissions {
+  orcamentos: boolean; // Orçamentos e Pedidos
+  clientes: boolean;   // Cadastro de Clientes
+  precos: boolean;     // Categorias e Preços
+  boletos: boolean;    // Emitir Boletos
+}
+
+export interface TeamMember {
+  uid: string;
+  tenantId: string;
+  name: string;
+  email: string;
+  role: 'master' | 'member';
+  permissions: TeamMemberPermissions;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export type BoletoProvider = 'efi' | 'inter' | 'asaas';

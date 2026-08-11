@@ -27,6 +27,7 @@ import { CustomerManager } from './components/CustomerManager';
 import { CategoryProductManager } from './components/CategoryProductManager';
 import { CompanySettingsView } from './components/CompanySettings';
 import { EmitirBoletos } from './components/EmitirBoletos';
+import { UserManagement } from './components/UserManagement';
 import { LoginModal } from './components/LoginModal';
 import { DeployGuideModal } from './components/DeployGuideModal';
 import { DevConsoleModal } from './components/DevConsoleModal';
@@ -34,6 +35,7 @@ import { setLoggerContext } from './lib/logger';
 
 function MainApp() {
   const { user, settings, updateSettings, loading } = useAuth();
+  const isMaster = !user || user.role === 'master';
   const tenantId = user?.tenantId || 'tenant_default';
 
   // Navigation State
@@ -62,6 +64,19 @@ function MainApp() {
       setLoggerContext(tenantId, user?.email);
     }
   }, [tenantId, user]);
+
+  // Se um usuário membro loga e não tem permissão pra aba padrão ("Orçamentos"),
+  // manda ele direto pra primeira área que ele realmente pode acessar — em vez
+  // de deixar cair numa tela de "sem permissão" logo de cara.
+  useEffect(() => {
+    if (!user || isMaster) return;
+    const p = user.permissions;
+    if (activeTab === 'quotes' && !p.orcamentos) {
+      if (p.clientes) setActiveTab('customers');
+      else if (p.precos) setActiveTab('categories');
+      else if (p.boletos) setActiveTab('boletos');
+    }
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Carrega os dados do tenant DIRETO do Firestore (única fonte de verdade).
   const loadTenantData = async () => {
@@ -260,13 +275,15 @@ function MainApp() {
               quotesCount={quotes.length}
               customersCount={customers.length}
               categoriesCount={categories.length}
+              role={user?.role || 'master'}
+              permissions={user?.permissions || { orcamentos: true, clientes: true, precos: true, boletos: true }}
             />
 
             {/* Content Area */}
             <main className="flex-1 p-4 sm:p-6 lg:p-8 min-w-0">
-              
+
               {/* QUOTES TAB */}
-              {activeTab === 'quotes' && (
+              {activeTab === 'quotes' && (isMaster || user?.permissions.orcamentos) && (
                 <>
                   {quoteSubView === 'list' && (
                     <QuoteList
@@ -316,7 +333,7 @@ function MainApp() {
               )}
 
               {/* CUSTOMERS TAB */}
-              {activeTab === 'customers' && (
+              {activeTab === 'customers' && (isMaster || user?.permissions.clientes) && (
                 <CustomerManager
                   customers={customers}
                   onSaveCustomer={handleSaveCustomer}
@@ -325,7 +342,7 @@ function MainApp() {
               )}
 
               {/* CATEGORIES & PRODUCTS TAB */}
-              {activeTab === 'categories' && (
+              {activeTab === 'categories' && (isMaster || user?.permissions.precos) && (
                 <CategoryProductManager
                   categories={categories}
                   products={products}
@@ -337,7 +354,7 @@ function MainApp() {
               )}
 
               {/* BOLETOS TAB */}
-              {activeTab === 'boletos' && (
+              {activeTab === 'boletos' && (isMaster || user?.permissions.boletos) && (
                 <EmitirBoletos
                   tenantId={tenantId}
                   customers={customers}
@@ -347,14 +364,33 @@ function MainApp() {
                 />
               )}
 
-              {/* SETTINGS TAB */}
-              {activeTab === 'settings' && (
+              {/* USERS TAB (master only) */}
+              {activeTab === 'usuarios' && isMaster && (
+                <UserManagement currentUserUid={user?.uid || ''} />
+              )}
+
+              {/* SETTINGS TAB (master only) */}
+              {activeTab === 'settings' && isMaster && (
                 <CompanySettingsView
                   settings={settings}
                   onSave={async (newSettings) => {
                     await updateSettings(newSettings);
                   }}
                 />
+              )}
+
+              {/* Sem permissão pra esta área (defesa extra — a aba já nem aparece
+                  no menu lateral, mas isso cobre estado de navegação obsoleto) */}
+              {((activeTab === 'quotes' && !(isMaster || user?.permissions.orcamentos)) ||
+                (activeTab === 'customers' && !(isMaster || user?.permissions.clientes)) ||
+                (activeTab === 'categories' && !(isMaster || user?.permissions.precos)) ||
+                (activeTab === 'boletos' && !(isMaster || user?.permissions.boletos)) ||
+                (activeTab === 'usuarios' && !isMaster) ||
+                (activeTab === 'settings' && !isMaster)) && (
+                <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center">
+                  <p className="text-sm font-bold text-slate-900">Sem permissão para esta área</p>
+                  <p className="text-xs text-slate-500 mt-1">Peça ao administrador da conta para liberar o acesso.</p>
+                </div>
               )}
 
             </main>
