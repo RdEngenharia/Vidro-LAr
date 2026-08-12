@@ -699,3 +699,272 @@ exports.boletoWebhook = onRequest({ secrets: [BOLETO_VAULT_KEY] }, async (req, r
     res.status(200).send('erro registrado');
   }
 });
+
+// ---------------------------------------------------------------------------
+// Assinatura do sistema (SaaS) — Mercado Pago
+// ---------------------------------------------------------------------------
+// Diferente do cofre de boletos (que é a vidraçaria cobrando OS CLIENTES DELA),
+// isto aqui é o próprio sistema cobrando a mensalidade da vidraçaria pra usar
+// o Vidraçaria Pro. R$49,90/mês, ou R$538,92 pagando os 12 meses de uma vez
+// (10% de desconto). 7 dias de teste grátis, sem plano free depois disso.
+const MP_ACCESS_TOKEN = defineSecret('MERCADO_PAGO_ACCESS_TOKEN');
+const { calcularValidade, estenderValidade, resolverStatusAtual, PRECOS } = require('./billing');
+const mp = require('./mercadopago');
+
+function buildMPWebhookUrl() {
+  return process.env.MP_WEBHOOK_BASE_URL || 'https://us-central1-vitri-pro.cloudfunctions.net/mercadoPagoWebhook';
+}
+
+// ---------------------------------------------------------------------------
+// getSubscriptionStatus — a tela chama isso pra saber se libera o sistema.
+// ---------------------------------------------------------------------------
+// A verdade é sempre recalculada na leitura (nunca confia num campo "pronto"
+// desatualizado) — se o plano expirou, atualiza o registro AQUI MESMO, sem
+// precisar de nenhuma tarefa agendada rodando de madrugada.
+exports.getSubscriptionStatus = onCall(async (request) => {
+  const tenantId = requireTenantAccess(request);
+
+  const billingRef = getDb().collection('tenants').doc(tenantId).collection('billing').doc('status');
+  const snap = await billingRef.get();
+
+  if (!snap.exists) {
+    return { planType: 'expired', trialEndsAt: null, premiumUntil: null };
+  }
+
+  const billing = snap.data();
+  const statusReal = resolverStatusAtual(billing);
+
+  if (statusReal !== billing.planType) {
+    await billingRef.set({ planType: statusReal, updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+  }
+
+  return {
+    planType: statusReal,
+    trialEndsAt: billing.trialEndsAt ? billing.trialEndsAt.toDate().toISOString() : null,
+    premiumUntil: billing.premiumUntil ? billing.premiumUntil.toDate().toISOString() : null,
+    billingCycle: billing.billingCycle || null,
+    paymentMethod: billing.paymentMethod || null,
+    subscriptionType: billing.subscriptionType || null,
+  };
+});
+
+// ---------------------------------------------------------------------------
+// createCheckout — inicia uma cobrança (Pix ou cartão, mensal ou anual).
+// ---------------------------------------------------------------------------
+exports.createCheckout = onCall({ secrets: [MP_ACCESS_TOKEN] }, async (request) => {
+  const tenantId = requireMaster(request); // só o mestre paga a assinatura da conta
+  const { billingCycle, paymentMethod, cardToken, payerEmail, idempotencyKey } = request.data || {};
+
+  if (!['monthly', 'annual'].includes(billingCycle)) {
+    throw new HttpsError('invalid-argument', 'Escolha o ciclo: mensal ou anual.');
+  }
+  if (!['pix', 'cartao'].includes(paymentMethod)) {
+    throw new HttpsError('invalid-argument', 'Escolha a forma de pagamento: Pix ou cartão.');
+  }
+  if (!payerEmail) {
+    throw new HttpsError('invalid-argument', 'Informe o e-mail do pagador.');
+  }
+  if (paymentMethod === 'cartao' && !cardToken) {
+    throw new HttpsError('invalid-argument', 'Token do cartão ausente — o cartão precisa ser tokenizado no navegador antes de chegar aqui.');
+  }
+  if (!idempotencyKey) {
+    throw new HttpsError('invalid-argument', 'Chave de idempotência ausente.');
+  }
+
+  const valor = PRECOS[billingCycle];
+  const accessToken = MP_ACCESS_TOKEN.value();
+  const notificationUrl = buildMPWebhookUrl();
+
+  const billingRef = getDb().collection('tenants').doc(tenantId).collection('billing').doc('status');
+
+  try {
+    // Assinatura recorrente: só faz sentido pra cartão + mensal. Anual é
+    // sempre pagamento único (mesmo no cartão) — "pagar de uma vez 12 meses".
+    if (paymentMethod === 'cartao' && billingCycle === 'monthly') {
+      const preapproval = await mp.criarAssinaturaRecorrente(accessToken, {
+        valor, tenantId, payerEmail, cardToken, notificationUrl,
+      });
+
+      await billingRef.set(
+        {
+          mercadoPagoPreapprovalId: preapproval.id,
+          mercadoPagoStatus: preapproval.status,
+          billingCycle,
+          paymentMethod,
+          subscriptionType: 'recurring',
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      if (preapproval.status === 'authorized') {
+        const billingSnap = await billingRef.get();
+        const novaValidade = estenderValidade(billingSnap.data()?.premiumUntil, billingCycle);
+        await billingRef.set(
+          { planType: 'premium', premiumUntil: novaValidade, updatedAt: admin.firestore.FieldValue.serverTimestamp() },
+          { merge: true }
+        );
+      }
+
+      return { ok: true, status: preapproval.status, type: 'recurring' };
+    }
+
+    const pagamento = await mp.criarPagamentoAvulso(accessToken, {
+      valor,
+      metodo: paymentMethod,
+      tenantId,
+      descricao: `Vidraçaria Pro — Assinatura ${billingCycle === 'annual' ? 'Anual' : 'Mensal'}`,
+      payerEmail,
+      cardToken,
+      idempotencyKey,
+      notificationUrl,
+    });
+
+    await billingRef.set(
+      {
+        mercadoPagoPaymentId: pagamento.id,
+        mercadoPagoStatus: pagamento.status,
+        billingCycle,
+        paymentMethod,
+        subscriptionType: 'single',
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    if (pagamento.status === 'approved') {
+      const billingSnap = await billingRef.get();
+      const novaValidade = estenderValidade(billingSnap.data()?.premiumUntil, billingCycle);
+      await billingRef.set(
+        { planType: 'premium', premiumUntil: novaValidade, updatedAt: admin.firestore.FieldValue.serverTimestamp() },
+        { merge: true }
+      );
+    }
+
+    return {
+      ok: true,
+      status: pagamento.status,
+      type: 'single',
+      paymentId: pagamento.id,
+      qrCode: pagamento.point_of_interaction?.transaction_data?.qr_code || null,
+      qrCodeBase64: pagamento.point_of_interaction?.transaction_data?.qr_code_base64 || null,
+    };
+  } catch (err) {
+    throw new HttpsError('internal', err.message || 'Falha ao criar cobrança no Mercado Pago.');
+  }
+});
+
+// ---------------------------------------------------------------------------
+// mercadoPagoWebhook — "o boato" do Mercado Pago. Nunca decide nada sozinho.
+// ---------------------------------------------------------------------------
+exports.mercadoPagoWebhook = onRequest({ secrets: [MP_ACCESS_TOKEN] }, async (req, res) => {
+  res.status(200).json({ received: true });
+
+  try {
+    const body = req.body || {};
+    const accessToken = MP_ACCESS_TOKEN.value();
+
+    const ehEventoDeAssinatura =
+      body.type === 'subscription_preapproval' ||
+      body.topic === 'subscription_preapproval' ||
+      (body.action && body.action.startsWith('subscription_preapproval'));
+
+    if (ehEventoDeAssinatura) {
+      const preapprovalId = body.data?.id || body.id;
+      if (!preapprovalId) return;
+
+      const assinatura = await mp.consultarAssinatura(accessToken, preapprovalId);
+      const tenantId = assinatura.external_reference;
+      if (!tenantId) return;
+
+      if (assinatura.status === 'cancelled' || assinatura.status === 'paused') {
+        await getDb()
+          .collection('tenants')
+          .doc(tenantId)
+          .collection('billing')
+          .doc('status')
+          .set(
+            {
+              mercadoPagoStatus: assinatura.status,
+              subscriptionWillRenew: false,
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
+      }
+      return;
+    }
+
+    let paymentId = '';
+    if (body.type === 'payment' && body.data?.id) paymentId = String(body.data.id);
+    else if (body.action && body.action.startsWith('payment') && body.data?.id) paymentId = String(body.data.id);
+    else if (body.topic === 'payment' && body.id) paymentId = String(body.id);
+    else if (body.resource && body.topic === 'payment') {
+      const m = String(body.resource).match(/\/payments\/(\d+)/);
+      if (m) paymentId = m[1];
+    }
+    if (!paymentId) return;
+
+    const pagamento = await mp.consultarPagamento(accessToken, paymentId);
+    const tenantId = pagamento.external_reference;
+    if (!tenantId) return;
+
+    const billingRef = getDb().collection('tenants').doc(tenantId).collection('billing').doc('status');
+    const billingSnap = await billingRef.get();
+    const billingAtual = billingSnap.exists ? billingSnap.data() : {};
+
+    await billingRef.set(
+      { mercadoPagoStatus: pagamento.status, updatedAt: admin.firestore.FieldValue.serverTimestamp() },
+      { merge: true }
+    );
+
+    if (pagamento.status === 'approved') {
+      const ciclo = billingAtual.billingCycle || 'monthly';
+      const novaValidade = estenderValidade(billingAtual.premiumUntil, ciclo);
+      await billingRef.set(
+        { planType: 'premium', premiumUntil: novaValidade, subscriptionWillRenew: true },
+        { merge: true }
+      );
+    }
+  } catch (err) {
+    console.error('[mercadoPagoWebhook] Erro ao processar:', err.message);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// ensureTrialStarted — garante os 7 dias de teste grátis no primeiro login.
+// ---------------------------------------------------------------------------
+// Mesmo o início do teste grátis passa pelo servidor — não existe caminho
+// nenhum onde o navegador escreve o próprio plano, nem o valor inicial. Se
+// existisse, bastaria repetir a chamada pra "renovar" o teste grátis pra
+// sempre.
+const { calcularFimTeste } = require('./billing');
+
+exports.ensureTrialStarted = onCall(async (request) => {
+  const uid = requireAuth(request);
+  // Só o mestre tem teste grátis próprio — o acesso de um membro depende do
+  // plano da conta do mestre dele, não de um plano individual.
+  const token = request.auth.token || {};
+  if (token.role === 'member') {
+    return { ok: true, skipped: true };
+  }
+
+  const billingRef = getDb().collection('tenants').doc(uid).collection('billing').doc('status');
+  const snap = await billingRef.get();
+  if (snap.exists) {
+    return { ok: true, alreadyExists: true };
+  }
+
+  await billingRef.set({
+    planType: 'trial',
+    trialEndsAt: calcularFimTeste(),
+    premiumUntil: null,
+    billingCycle: null,
+    paymentMethod: null,
+    subscriptionType: null,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  return { ok: true, alreadyExists: false };
+});

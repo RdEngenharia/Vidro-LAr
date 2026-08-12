@@ -28,6 +28,7 @@ import { CategoryProductManager } from './components/CategoryProductManager';
 import { CompanySettingsView } from './components/CompanySettings';
 import { EmitirBoletos } from './components/EmitirBoletos';
 import { UserManagement } from './components/UserManagement';
+import { SubscriptionGate } from './components/SubscriptionGate';
 import { LoginModal } from './components/LoginModal';
 import { DeployGuideModal } from './components/DeployGuideModal';
 import { DevConsoleModal } from './components/DevConsoleModal';
@@ -249,7 +250,7 @@ function MainApp() {
       />
 
       {user && (
-        <>
+        <SubscriptionGate>
           {/* Top Navbar */}
           <Navbar
             onNewQuoteClick={handleNewQuoteClick}
@@ -396,7 +397,7 @@ function MainApp() {
             </main>
 
           </div>
-        </>
+        </SubscriptionGate>
       )}
 
     </div>

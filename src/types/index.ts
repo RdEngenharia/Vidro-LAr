@@ -176,6 +176,19 @@ export interface TeamMember {
   updatedAt?: string;
 }
 
+export type SubscriptionPlanType = 'trial' | 'premium' | 'expired';
+export type BillingCycle = 'monthly' | 'annual';
+export type SubscriptionPaymentMethod = 'pix' | 'cartao';
+
+export interface SubscriptionStatus {
+  planType: SubscriptionPlanType;
+  trialEndsAt: string | null;
+  premiumUntil: string | null;
+  billingCycle: BillingCycle | null;
+  paymentMethod: SubscriptionPaymentMethod | null;
+  subscriptionType: 'recurring' | 'single' | null;
+}
+
 export type BoletoProvider = 'efi' | 'inter' | 'asaas';
 
 export interface Boleto {

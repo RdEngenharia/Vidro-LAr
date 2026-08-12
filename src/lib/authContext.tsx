@@ -13,6 +13,7 @@ import {
 } from 'firebase/auth';
 import { UserProfile, CompanySettings, TeamMemberPermissions } from '../types';
 import { initializeTenantData, getCompanySettings, saveCompanySettings, saveMasterTeamMemberSelf } from './db';
+import { ensureTrialStarted } from './billingApi';
 import { auth as firebaseAuth } from './firebase';
 import { logError } from './logger';
 
@@ -122,6 +123,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Garante que o mestre também aparece na lista de "Usuários" do sistema,
       // não só os membros criados por ele.
       await saveMasterTeamMemberSelf(tenantId, firebaseUser.displayName || '', firebaseUser.email || '');
+      // Garante os 7 dias de teste grátis no primeiro login — sempre via
+      // Cloud Function (nunca escrito direto pelo navegador). A própria
+      // function já checa se já existe, então é seguro chamar em todo login.
+      try {
+        await ensureTrialStarted();
+      } catch (err) {
+        console.warn('Não foi possível verificar/iniciar o teste grátis:', err);
+      }
     }
 
     const companySettings = await getCompanySettings(tenantId);
