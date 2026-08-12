@@ -29,6 +29,7 @@ import { CompanySettingsView } from './components/CompanySettings';
 import { EmitirBoletos } from './components/EmitirBoletos';
 import { UserManagement } from './components/UserManagement';
 import { SubscriptionGate } from './components/SubscriptionGate';
+import { MinhaAssinatura } from './components/MinhaAssinatura';
 import { LoginModal } from './components/LoginModal';
 import { DeployGuideModal } from './components/DeployGuideModal';
 import { DevConsoleModal } from './components/DevConsoleModal';
@@ -370,6 +371,9 @@ function MainApp() {
                 <UserManagement currentUserUid={user?.uid || ''} />
               )}
 
+              {/* SUBSCRIPTION TAB (master only) */}
+              {activeTab === 'assinatura' && isMaster && <MinhaAssinatura />}
+
               {/* SETTINGS TAB (master only) */}
               {activeTab === 'settings' && isMaster && (
                 <CompanySettingsView
@@ -387,6 +391,7 @@ function MainApp() {
                 (activeTab === 'categories' && !(isMaster || user?.permissions.precos)) ||
                 (activeTab === 'boletos' && !(isMaster || user?.permissions.boletos)) ||
                 (activeTab === 'usuarios' && !isMaster) ||
+                (activeTab === 'assinatura' && !isMaster) ||
                 (activeTab === 'settings' && !isMaster)) && (
                 <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center">
                   <p className="text-sm font-bold text-slate-900">Sem permissão para esta área</p>

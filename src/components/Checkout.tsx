@@ -19,9 +19,13 @@ const PRECOS = {
 
 interface CheckoutProps {
   onPaymentConfirmed: () => void;
+  /** false = renderiza embutido em outra tela (ex: "Minha Assinatura"), sem
+   *  ocupar a página inteira nem impedir sair. Default: true (tela de bloqueio). */
+  fullScreen?: boolean;
+  onCancel?: () => void;
 }
 
-export const Checkout: React.FC<CheckoutProps> = ({ onPaymentConfirmed }) => {
+export const Checkout: React.FC<CheckoutProps> = ({ onPaymentConfirmed, fullScreen = true, onCancel }) => {
   const { user, logout } = useAuth();
   const [billingCycle, setBillingCycle] = useState<BillingCycle>('monthly');
   const [paymentMethod, setPaymentMethod] = useState<SubscriptionPaymentMethod>('pix');
@@ -188,17 +192,19 @@ export const Checkout: React.FC<CheckoutProps> = ({ onPaymentConfirmed }) => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-lg max-w-lg w-full p-6 sm:p-8">
-        <div className="text-center mb-6">
-          <div className="w-12 h-12 bg-slate-900 rounded-2xl flex items-center justify-center mx-auto mb-3">
-            <ShieldCheck className="w-6 h-6 text-blue-400" />
+    <div className={fullScreen ? 'min-h-screen bg-slate-50 flex items-center justify-center p-4' : ''}>
+      <div className={fullScreen ? 'bg-white rounded-2xl border border-slate-200 shadow-lg max-w-lg w-full p-6 sm:p-8' : ''}>
+        {fullScreen && (
+          <div className="text-center mb-6">
+            <div className="w-12 h-12 bg-slate-900 rounded-2xl flex items-center justify-center mx-auto mb-3">
+              <ShieldCheck className="w-6 h-6 text-blue-400" />
+            </div>
+            <h1 className="text-lg font-bold text-slate-900">Assine o Vidraçaria Pro</h1>
+            <p className="text-xs text-slate-500 mt-1">
+              Seu período de teste terminou. Escolha um plano para continuar usando o sistema.
+            </p>
           </div>
-          <h1 className="text-lg font-bold text-slate-900">Assine o Vidraçaria Pro</h1>
-          <p className="text-xs text-slate-500 mt-1">
-            Seu período de teste terminou. Escolha um plano para continuar usando o sistema.
-          </p>
-        </div>
+        )}
 
         {!pixQrCode && (
           <>
@@ -352,9 +358,21 @@ export const Checkout: React.FC<CheckoutProps> = ({ onPaymentConfirmed }) => {
           </div>
         )}
 
-        <button onClick={logout} className="w-full mt-4 text-[11px] text-slate-400 hover:text-slate-600 cursor-pointer">
-          Sair da conta
-        </button>
+        {fullScreen ? (
+          <button onClick={logout} className="w-full mt-4 text-[11px] text-slate-400 hover:text-slate-600 cursor-pointer">
+            Sair da conta
+          </button>
+        ) : (
+          onCancel &&
+          !pixQrCode && (
+            <button
+              onClick={onCancel}
+              className="w-full mt-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-700 cursor-pointer"
+            >
+              Cancelar
+            </button>
+          )
+        )}
       </div>
     </div>
   );

@@ -8,11 +8,12 @@ import {
   ShieldCheck,
   Building,
   Receipt,
-  UserCog
+  UserCog,
+  CreditCard
 } from 'lucide-react';
 import { TeamMemberPermissions } from '../types';
 
-export type TabType = 'quotes' | 'customers' | 'categories' | 'settings' | 'deploy' | 'boletos' | 'usuarios';
+export type TabType = 'quotes' | 'customers' | 'categories' | 'settings' | 'deploy' | 'boletos' | 'usuarios' | 'assinatura';
 
 interface SidebarProps {
   activeTab: TabType;
@@ -70,6 +71,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'usuarios' as TabType,
       label: 'Usuários',
       icon: UserCog,
+      visible: isMaster,
+    },
+    {
+      id: 'assinatura' as TabType,
+      label: 'Minha Assinatura',
+      icon: CreditCard,
       visible: isMaster,
     },
     {

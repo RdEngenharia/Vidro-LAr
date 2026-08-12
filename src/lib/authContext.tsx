@@ -23,7 +23,7 @@ interface AuthContextType {
   loading: boolean;
   authError: string | null;
   login: (email: string, pass: string) => Promise<boolean>;
-  register: (name: string, companyName: string, email: string, pass: string) => Promise<boolean>;
+  register: (name: string, companyName: string, email: string, pass: string, cnpj?: string) => Promise<boolean>;
   logout: () => void;
   updateSettings: (newSettings: CompanySettings) => Promise<void>;
   requestPasswordReset: (email: string) => Promise<boolean>;
@@ -117,20 +117,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const tenantId = isMember && claims.tenantId ? claims.tenantId : firebaseUser.uid;
 
     if (!isMember) {
-      // Só o mestre semeia/inicializa os dados do tenant (categorias padrão,
-      // configurações vazias) — um membro nunca "cria" um tenant novo.
-      await initializeTenantData(tenantId, fallbackCompanyName || firebaseUser.displayName || 'Minha Vidraçaria', firebaseUser.email || '');
-      // Garante que o mestre também aparece na lista de "Usuários" do sistema,
-      // não só os membros criados por ele.
-      await saveMasterTeamMemberSelf(tenantId, firebaseUser.displayName || '', firebaseUser.email || '');
-      // Garante os 7 dias de teste grátis no primeiro login — sempre via
-      // Cloud Function (nunca escrito direto pelo navegador). A própria
+      // Garante os 7 dias de teste grátis ANTES de qualquer outra gravação —
+      // as regras do Firestore agora exigem assinatura ativa pra gravar
+      // categorias/produtos, então isso precisa vir primeiro. A própria
       // function já checa se já existe, então é seguro chamar em todo login.
       try {
         await ensureTrialStarted();
       } catch (err) {
         console.warn('Não foi possível verificar/iniciar o teste grátis:', err);
       }
+      // Só o mestre semeia/inicializa os dados do tenant (categorias padrão,
+      // configurações vazias) — um membro nunca "cria" um tenant novo.
+      await initializeTenantData(tenantId, fallbackCompanyName || firebaseUser.displayName || 'Minha Vidraçaria', firebaseUser.email || '');
+      // Garante que o mestre também aparece na lista de "Usuários" do sistema,
+      // não só os membros criados por ele.
+      await saveMasterTeamMemberSelf(tenantId, firebaseUser.displayName || '', firebaseUser.email || '');
     }
 
     const companySettings = await getCompanySettings(tenantId);
@@ -178,7 +179,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     name: string,
     companyName: string,
     email: string,
-    pass: string
+    pass: string,
+    cnpj?: string
   ): Promise<boolean> => {
     setAuthError(null);
     if (!firebaseAuth) {
@@ -192,15 +194,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await updateProfile(cred.user, { displayName: name });
       }
 
+      // IMPORTANTE: o teste grátis precisa ser garantido ANTES de gravar
+      // qualquer dado do tenant (categorias, produtos). As regras do
+      // Firestore agora exigem assinatura ativa pra gravar nessas coleções
+      // — sem o registro de teste grátis existir primeiro, a próxima
+      // chamada (initializeTenantData) seria recusada.
+      await ensureTrialStarted();
+
       // Cria os dados iniciais do tenant já com o nome real da vidraçaria informado no cadastro
       await initializeTenantData(cred.user.uid, companyName || name || 'Minha Vidraçaria', cred.user.email || '');
       const existingSettings = await getCompanySettings(cred.user.uid);
-      if (existingSettings && companyName) {
+      if (existingSettings && (companyName || cnpj)) {
         const updated: CompanySettings = {
           ...existingSettings,
-          companyName,
-          tradeName: companyName,
+          companyName: companyName || existingSettings.companyName,
+          tradeName: companyName || existingSettings.tradeName,
           email: email.trim().toLowerCase(),
+          ...(cnpj ? { cnpj: cnpj.trim() } : {}),
         };
         await saveCompanySettings(updated);
       }
