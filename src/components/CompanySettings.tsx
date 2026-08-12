@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { CompanySettings } from '../types';
 import { useAuth } from '../lib/authContext';
-import { Settings, Upload, Save, Building2, CheckCircle2, FileText, Info } from 'lucide-react';
+import { Settings, Upload, Save, Building2, CheckCircle2, FileText, Info, Lock } from 'lucide-react';
 
 interface CompanySettingsProps {
   settings?: CompanySettings | null;
@@ -276,14 +276,21 @@ export const CompanySettingsView: React.FC<CompanySettingsProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">CNPJ</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1.5">
+                CNPJ
+                <Lock className="w-3 h-3 text-slate-400" />
+              </label>
               <input
                 type="text"
                 value={cnpj}
-                onChange={(e) => setCnpj(e.target.value)}
-                placeholder="00.000.000/0001-00"
-                className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono"
+                disabled
+                readOnly
+                placeholder="Não informado no cadastro"
+                className="w-full p-2 bg-slate-100 border border-slate-200 rounded-lg text-xs font-mono text-slate-500 cursor-not-allowed"
               />
+              <p className="text-[10px] text-slate-400 mt-1">
+                Validado na Receita Federal no momento do cadastro — não pode ser alterado, para evitar fraude.
+              </p>
             </div>
 
             <div>

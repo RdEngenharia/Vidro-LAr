@@ -968,3 +968,98 @@ exports.ensureTrialStarted = onCall(async (request) => {
 
   return { ok: true, alreadyExists: false };
 });
+
+// ---------------------------------------------------------------------------
+// CNPJ obrigatório, validado na Receita e travado após o cadastro.
+// ---------------------------------------------------------------------------
+// Duas funções, propositalmente separadas:
+//   1. checkCnpjAvailable — chamada ANTES de criar a conta (sem login ainda),
+//      só valida e mostra a razão social pra pessoa confirmar. Não reserva
+//      nada ainda — evita ficar com CNPJs "reservados" por gente que desistiu
+//      no meio do cadastro.
+//   2. registerCnpj — chamada LOGO DEPOIS da conta ser criada (já logada),
+//      dentro de uma transação: confere de novo que o CNPJ está livre e já
+//      grava o vínculo de uma vez, atômico. É essa segunda checagem que
+//      realmente impede duas pessoas cadastrando o mesmo CNPJ ao mesmo tempo.
+const { validarCnpjReal, limparCnpj } = require('./cnpj');
+
+exports.checkCnpjAvailable = onCall(async (request) => {
+  const { cnpj } = request.data || {};
+  if (!cnpj) {
+    throw new HttpsError('invalid-argument', 'Informe o CNPJ.');
+  }
+
+  const cnpjLimpo = limparCnpj(cnpj);
+
+  let dadosReceita;
+  try {
+    dadosReceita = await validarCnpjReal(cnpjLimpo);
+  } catch (err) {
+    throw new HttpsError('invalid-argument', err.message);
+  }
+
+  const registroSnap = await getDb().collection('cnpjRegistry').doc(cnpjLimpo).get();
+  if (registroSnap.exists) {
+    throw new HttpsError('already-exists', 'Já existe uma conta cadastrada com este CNPJ.');
+  }
+
+  return { ok: true, ...dadosReceita };
+});
+
+exports.registerCnpj = onCall(async (request) => {
+  const tenantId = requireAuth(request);
+  const { cnpj } = request.data || {};
+  if (!cnpj) {
+    throw new HttpsError('invalid-argument', 'Informe o CNPJ.');
+  }
+
+  const cnpjLimpo = limparCnpj(cnpj);
+
+  let dadosReceita;
+  try {
+    dadosReceita = await validarCnpjReal(cnpjLimpo);
+  } catch (err) {
+    throw new HttpsError('invalid-argument', err.message);
+  }
+
+  const registroRef = getDb().collection('cnpjRegistry').doc(cnpjLimpo);
+  const settingsRef = getDb().collection('tenants').doc(tenantId).collection('settings').doc(tenantId);
+
+  // Transação: confere e grava atomicamente. Se duas pessoas tentarem
+  // cadastrar o mesmo CNPJ ao mesmo tempo, só a primeira consegue — a
+  // segunda recebe o erro "already-exists" aqui, não um estado quebrado.
+  try {
+    await getDb().runTransaction(async (tx) => {
+      const registroSnap = await tx.get(registroRef);
+      if (registroSnap.exists) {
+        const donoAtual = registroSnap.data().tenantId;
+        if (donoAtual !== tenantId) {
+          throw new HttpsError('already-exists', 'Já existe uma conta cadastrada com este CNPJ.');
+        }
+        return; // já é o dono, nada a fazer (chamada repetida, idempotente)
+      }
+
+      tx.set(registroRef, {
+        cnpj: cnpjLimpo,
+        tenantId,
+        razaoSocial: dadosReceita.razaoSocial,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      tx.set(
+        settingsRef,
+        {
+          cnpj: cnpjLimpo,
+          cnpjRazaoSocial: dadosReceita.razaoSocial,
+          cnpjValidadoEm: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+    });
+  } catch (err) {
+    if (err instanceof HttpsError) throw err;
+    throw new HttpsError('internal', err.message || 'Erro ao registrar o CNPJ.');
+  }
+
+  return { ok: true, razaoSocial: dadosReceita.razaoSocial };
+});

@@ -14,6 +14,7 @@ import {
 import { UserProfile, CompanySettings, TeamMemberPermissions } from '../types';
 import { initializeTenantData, getCompanySettings, saveCompanySettings, saveMasterTeamMemberSelf } from './db';
 import { ensureTrialStarted } from './billingApi';
+import { registerCnpj } from './cnpjApi';
 import { auth as firebaseAuth } from './firebase';
 import { logError } from './logger';
 
@@ -23,7 +24,7 @@ interface AuthContextType {
   loading: boolean;
   authError: string | null;
   login: (email: string, pass: string) => Promise<boolean>;
-  register: (name: string, companyName: string, email: string, pass: string, cnpj?: string) => Promise<boolean>;
+  register: (name: string, companyName: string, email: string, pass: string, cnpj: string) => Promise<boolean>;
   logout: () => void;
   updateSettings: (newSettings: CompanySettings) => Promise<void>;
   requestPasswordReset: (email: string) => Promise<boolean>;
@@ -180,11 +181,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     companyName: string,
     email: string,
     pass: string,
-    cnpj?: string
+    cnpj: string
   ): Promise<boolean> => {
     setAuthError(null);
     if (!firebaseAuth) {
       setAuthError('Firebase não configurado. Verifique o arquivo .env do projeto.');
+      return false;
+    }
+    if (!cnpj || !cnpj.trim()) {
+      setAuthError('O CNPJ é obrigatório para criar uma conta.');
       return false;
     }
     try {
@@ -193,6 +198,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (name) {
         await updateProfile(cred.user, { displayName: name });
       }
+
+      // Trava o CNPJ nesta conta logo após criá-la (já autenticado, a
+      // transação no servidor confere de novo que ninguém pegou esse CNPJ
+      // entre a validação da tela e este momento). Feito ANTES de qualquer
+      // outra gravação — se o CNPJ já estiver em uso, a conta de login já
+      // foi criada, mas nenhum dado do tenant chega a ser gravado.
+      await registerCnpj(cnpj.trim());
 
       // IMPORTANTE: o teste grátis precisa ser garantido ANTES de gravar
       // qualquer dado do tenant (categorias, produtos). As regras do
@@ -204,13 +216,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Cria os dados iniciais do tenant já com o nome real da vidraçaria informado no cadastro
       await initializeTenantData(cred.user.uid, companyName || name || 'Minha Vidraçaria', cred.user.email || '');
       const existingSettings = await getCompanySettings(cred.user.uid);
-      if (existingSettings && (companyName || cnpj)) {
+      if (existingSettings && companyName) {
+        // Nota: o CNPJ NÃO é reenviado aqui de propósito — ele já foi gravado
+        // pela Cloud Function acima (registerCnpj), que é o único lugar que
+        // grava esse campo. Isso mantém o CNPJ travado desde o primeiro
+        // segundo da conta, sem depender do formulário nunca mais tocar nele.
         const updated: CompanySettings = {
           ...existingSettings,
-          companyName: companyName || existingSettings.companyName,
-          tradeName: companyName || existingSettings.tradeName,
+          companyName,
+          tradeName: companyName,
           email: email.trim().toLowerCase(),
-          ...(cnpj ? { cnpj: cnpj.trim() } : {}),
         };
         await saveCompanySettings(updated);
       }
@@ -221,7 +236,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return true;
     } catch (err: any) {
       logError('AUTH_REGISTER', err, { email: email.trim().toLowerCase(), companyName });
-      setAuthError(translateFirebaseAuthError(err?.code));
+      setAuthError(err?.message || translateFirebaseAuthError(err?.code));
       return false;
     }
   };
