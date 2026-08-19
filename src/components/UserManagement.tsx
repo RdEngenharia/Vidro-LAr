@@ -15,6 +15,7 @@ import {
   UserRound,
   Grid,
   Receipt,
+  Boxes,
 } from 'lucide-react';
 
 const MAX_MEMBERS = 2;
@@ -24,10 +25,11 @@ const PERMISSION_META: Array<{ id: keyof TeamMemberPermissions; label: string; i
   { id: 'clientes', label: 'Cadastro de Clientes', icon: UserRound, description: 'Criar e editar clientes' },
   { id: 'precos', label: 'Categorias e Preços', icon: Grid, description: 'Alterar valores e produtos' },
   { id: 'boletos', label: 'Emitir Boletos', icon: Receipt, description: 'Emitir boletos (não inclui configurar o cofre bancário)' },
+  { id: 'estoque', label: 'Estoque', icon: Boxes, description: 'Controlar itens, compras e baixas de material' },
 ];
 
 function emptyPermissions(): TeamMemberPermissions {
-  return { orcamentos: false, clientes: false, precos: false, boletos: false };
+  return { orcamentos: false, clientes: false, precos: false, boletos: false, estoque: false };
 }
 
 interface UserManagementProps {

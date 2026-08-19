@@ -276,7 +276,7 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({
           id: genId('split'),
           method: 'PIX',
           amount: cashTotalAmount,
-          description: `Pagamento à vista no PIX com ${cashDiscountPercent}% de desconto`,
+          description: `Pagamento à Vista com ${cashDiscountPercent}% de desconto`,
         },
       ]);
       setFinalPayableAmount(cashTotalAmount);

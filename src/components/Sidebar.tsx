@@ -9,11 +9,12 @@ import {
   Building,
   Receipt,
   UserCog,
-  CreditCard
+  CreditCard,
+  Boxes
 } from 'lucide-react';
 import { TeamMemberPermissions } from '../types';
 
-export type TabType = 'quotes' | 'customers' | 'categories' | 'settings' | 'deploy' | 'boletos' | 'usuarios' | 'assinatura';
+export type TabType = 'quotes' | 'customers' | 'categories' | 'settings' | 'deploy' | 'boletos' | 'usuarios' | 'assinatura' | 'estoque';
 
 interface SidebarProps {
   activeTab: TabType;
@@ -66,6 +67,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Emitir Boletos',
       icon: Receipt,
       visible: isMaster || permissions.boletos,
+    },
+    {
+      id: 'estoque' as TabType,
+      label: 'Estoque',
+      icon: Boxes,
+      visible: isMaster || permissions.estoque,
     },
     {
       id: 'usuarios' as TabType,

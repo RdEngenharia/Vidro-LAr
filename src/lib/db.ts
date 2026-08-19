@@ -22,7 +22,7 @@ import {
   deleteDoc,
 } from 'firebase/firestore';
 import { db as firebaseDb, ensureFirebaseAuth } from './firebase';
-import { Customer, Category, ProductPreset, Quote, CompanySettings, TeamMember } from '../types';
+import { Customer, Category, ProductPreset, Quote, CompanySettings, TeamMember, ItemEstoque, MovimentoEstoque } from '../types';
 
 function requireDb() {
   if (!firebaseDb) {
@@ -284,7 +284,71 @@ export async function saveMasterTeamMemberSelf(tenantId: string, name: string, e
     name: name || 'Administrador',
     email,
     role: 'master',
-    permissions: { orcamentos: true, clientes: true, precos: true, boletos: true },
+    permissions: { orcamentos: true, clientes: true, precos: true, boletos: true, estoque: true },
   };
   await setDoc(tenantDoc(tenantId, 'teamMembers', tenantId), selfMember, { merge: true });
+}
+
+// ---------------------------------------------------------------------------
+// Estoque
+// ---------------------------------------------------------------------------
+export async function getEstoqueItens(tenantId: string): Promise<ItemEstoque[]> {
+  await ensureFirebaseAuth();
+  const snap = await getDocs(tenantCollection(tenantId, 'estoqueItens'));
+  const itens = snap.docs.map((d) => d.data() as ItemEstoque);
+  return itens.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+}
+
+export async function saveEstoqueItem(item: ItemEstoque): Promise<void> {
+  await ensureFirebaseAuth();
+  await setDoc(tenantDoc(item.tenantId, 'estoqueItens', item.id), item, { merge: true });
+}
+
+export async function deleteEstoqueItem(id: string, tenantId: string): Promise<void> {
+  await ensureFirebaseAuth();
+  await deleteDoc(tenantDoc(tenantId, 'estoqueItens', id));
+}
+
+// Movimentações ficam numa SUBCOLEÇÃO do item (tenants/{tenantId}/estoqueItens/{itemId}/movimentos/{movId}),
+// não embutidas dentro do próprio documento — um item com anos de movimentação
+// acumulada poderia estourar o limite de 1MB do Firestore se guardássemos tudo
+// junto (já vivemos esse exato problema aqui neste projeto, com a logo).
+function movimentoDoc(tenantId: string, itemId: string, movId: string) {
+  return doc(requireDb(), 'tenants', tenantId, 'estoqueItens', itemId, 'movimentos', movId);
+}
+function movimentosCollection(tenantId: string, itemId: string) {
+  return collection(requireDb(), 'tenants', tenantId, 'estoqueItens', itemId, 'movimentos');
+}
+
+export async function getMovimentosDoItem(tenantId: string, itemId: string): Promise<MovimentoEstoque[]> {
+  await ensureFirebaseAuth();
+  const snap = await getDocs(movimentosCollection(tenantId, itemId));
+  const movimentos = snap.docs.map((d) => d.data() as MovimentoEstoque);
+  return movimentos.sort((a, b) => b.createdAt.localeCompare(a.createdAt)); // mais recente primeiro
+}
+
+export async function addMovimentoEstoque(tenantId: string, itemId: string, movimento: MovimentoEstoque): Promise<void> {
+  await ensureFirebaseAuth();
+  await setDoc(movimentoDoc(tenantId, itemId, movimento.id), movimento);
+}
+
+export async function deleteMovimentoEstoque(tenantId: string, itemId: string, movimentoId: string): Promise<void> {
+  await ensureFirebaseAuth();
+  await deleteDoc(movimentoDoc(tenantId, itemId, movimentoId));
+}
+
+// Busca as movimentações de TODOS os itens de uma vez (usado no Relatório,
+// que precisa cruzar tudo por período/cliente). Como cada item normalmente
+// tem poucas dezenas de movimentações, isso é aceitável mesmo com N+1
+// consultas — evita ter que duplicar dados numa coleção "achatada" só pra
+// essa tela.
+export async function getTodosMovimentosEstoque(tenantId: string, itens: ItemEstoque[]): Promise<Array<{ item: ItemEstoque; movimento: MovimentoEstoque }>> {
+  await ensureFirebaseAuth();
+  const resultados = await Promise.all(
+    itens.map(async (item) => {
+      const movimentos = await getMovimentosDoItem(tenantId, item.id);
+      return movimentos.map((movimento) => ({ item, movimento }));
+    })
+  );
+  return resultados.flat();
 }

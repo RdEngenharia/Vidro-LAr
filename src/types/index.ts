@@ -163,6 +163,7 @@ export interface TeamMemberPermissions {
   clientes: boolean;   // Cadastro de Clientes
   precos: boolean;     // Categorias e Preços
   boletos: boolean;    // Emitir Boletos
+  estoque: boolean;    // Controle de Estoque
 }
 
 export interface TeamMember {
@@ -209,4 +210,46 @@ export interface Boleto {
   barcode?: string;
   boletoUrl?: string | null;
   createdAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Estoque — controle de material comprado, guardado, e baixado por orçamento.
+// ---------------------------------------------------------------------------
+export type UnidadeEstoque = 'un' | 'm' | 'm2' | 'kg' | 'l' | 'cx' | 'rolo' | 'pc';
+
+export interface MovimentoEstoque {
+  id: string;
+  tipo: 'entrada' | 'saida';
+  quantidade: number;
+  data: string; // dd/mm/aaaa, como o resto do sistema já usa
+  createdAt: string; // ISO — usado só pra ordenar
+
+  // Só em "entrada" (compra):
+  custoUnitario?: number;
+  frete?: number;
+
+  // Só em "saída" (baixa/consumo):
+  clienteId?: string;
+  clienteNome?: string;
+  quoteId?: string;
+  quoteCodeNumber?: number;
+  valorTotal?: number; // quantidade × custo médio NO MOMENTO da baixa
+
+  // Snapshot do item ANTES deste movimento — permite desfazer com segurança,
+  // sem precisar reverter a matemática do custo médio ponderado (frágil com
+  // ponto flutuante). Desfazer = simplesmente restaurar este snapshot.
+  estoqueAntesDoMovimento: { quantidadeAtual: number; custoMedio: number };
+}
+
+export interface ItemEstoque {
+  id: string;
+  tenantId: string;
+  nome: string;
+  unidade: UnidadeEstoque;
+  categoria?: string;
+  estoqueMinimo?: number;
+  quantidadeAtual: number;
+  custoMedio: number;
+  createdAt: string;
+  atualizadoEm: string;
 }

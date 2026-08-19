@@ -144,7 +144,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           precos: !!claims.permissions?.precos,
           boletos: !!claims.permissions?.boletos,
         }
-      : { orcamentos: true, clientes: true, precos: true, boletos: true };
+      : { orcamentos: true, clientes: true, precos: true, boletos: true, estoque: true };
 
     const profile: UserProfile = {
       uid: firebaseUser.uid,

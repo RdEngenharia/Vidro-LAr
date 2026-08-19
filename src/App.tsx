@@ -30,6 +30,7 @@ import { EmitirBoletos } from './components/EmitirBoletos';
 import { UserManagement } from './components/UserManagement';
 import { SubscriptionGate } from './components/SubscriptionGate';
 import { MinhaAssinatura } from './components/MinhaAssinatura';
+import { Estoque } from './components/Estoque';
 import { LoginModal } from './components/LoginModal';
 import { DeployGuideModal } from './components/DeployGuideModal';
 import { DevConsoleModal } from './components/DevConsoleModal';
@@ -278,7 +279,7 @@ function MainApp() {
               customersCount={customers.length}
               categoriesCount={categories.length}
               role={user?.role || 'master'}
-              permissions={user?.permissions || { orcamentos: true, clientes: true, precos: true, boletos: true }}
+              permissions={user?.permissions || { orcamentos: true, clientes: true, precos: true, boletos: true, estoque: true }}
             />
 
             {/* Content Area */}
@@ -366,6 +367,11 @@ function MainApp() {
                 />
               )}
 
+              {/* ESTOQUE TAB */}
+              {activeTab === 'estoque' && (isMaster || user?.permissions.estoque) && (
+                <Estoque tenantId={tenantId} customers={customers} quotes={quotes} />
+              )}
+
               {/* USERS TAB (master only) */}
               {activeTab === 'usuarios' && isMaster && (
                 <UserManagement currentUserUid={user?.uid || ''} />
@@ -390,6 +396,7 @@ function MainApp() {
                 (activeTab === 'customers' && !(isMaster || user?.permissions.clientes)) ||
                 (activeTab === 'categories' && !(isMaster || user?.permissions.precos)) ||
                 (activeTab === 'boletos' && !(isMaster || user?.permissions.boletos)) ||
+                (activeTab === 'estoque' && !(isMaster || user?.permissions.estoque)) ||
                 (activeTab === 'usuarios' && !isMaster) ||
                 (activeTab === 'assinatura' && !isMaster) ||
                 (activeTab === 'settings' && !isMaster)) && (

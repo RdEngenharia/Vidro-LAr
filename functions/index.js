@@ -67,7 +67,7 @@ function requireAuth(request) {
 const MAX_TEAM_MEMBERS = 2;
 
 function emptyPermissions() {
-  return { orcamentos: false, clientes: false, precos: false, boletos: false };
+  return { orcamentos: false, clientes: false, precos: false, boletos: false, estoque: false };
 }
 
 function sanitizePermissions(input) {
@@ -77,6 +77,7 @@ function sanitizePermissions(input) {
     clientes: !!p.clientes,
     precos: !!p.precos,
     boletos: !!p.boletos,
+    estoque: !!p.estoque,
   };
 }
 
